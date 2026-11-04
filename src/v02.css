@@ -1,0 +1,9 @@
+.v02-toolbar{display:flex;gap:8px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid #273647}
+.v02-toolbar button{background:#1e3247;color:#c5e5fb;border:1px solid #35506a;border-radius:7px;padding:9px 12px;font-size:12px}
+.v02-toolbar button:hover{background:#2a4360}
+.v02-toolbar button:disabled{opacity:.45;cursor:default}
+.v02-status{padding:0 20px 8px;color:#94bedc;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.v02-help{color:#94a4b6;font-size:12px;line-height:1.55;margin-top:16px}
+.viewer h3{gap:8px;overflow-wrap:anywhere}
+.viewer h3 span{white-space:nowrap}
+@media(max-width:500px){.v02-toolbar{padding:10px}.v02-toolbar button{padding:8px}.viewer h3{font-size:13px}}
