@@ -71,7 +71,7 @@ export default function App() {
         <p className="v02-help">Select a mesh by clicking it in the 3D view or from the list below. The selected mesh is outlined in gold.</p>
         <div className="mesh-panel-header"><strong>Scene meshes</strong><span>{meshes.length}</span></div>
         <div className="mesh-list" role="listbox" aria-label="Model meshes">
-          {meshes.length === 0 ? <p className="mesh-empty">Loading mesh list...</p> : meshes.map(mesh =>
+          {meshes.length === 0 ? <p className="mesh-empty">{status.startsWith("Không thể mở GLB") ? "Không thể đọc danh sách mesh từ file này. Hãy mở một GLB hợp lệ hoặc chọn Sample robot." : file && status.startsWith("Đang mở") ? "Đang tải danh sách mesh..." : "Không tìm thấy mesh trong mô hình."}</p> : meshes.map(mesh =>
             <button key={mesh.id} type="button" role="option" aria-selected={selectedMeshId === mesh.id}
               className={selectedMeshId === mesh.id ? "mesh-row selected" : "mesh-row"}
               onClick={() => setSelectedMeshId(mesh.id)}>
