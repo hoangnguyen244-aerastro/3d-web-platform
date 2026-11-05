@@ -12,6 +12,23 @@ This branch adds a Unity-inspired inspector for individual mesh materials. It do
 6. For custom GPU shaders, paste GLSL ES 1.00 source code or import one vertex file (.vert/.vs/.glsl) and one fragment file (.frag/.fs/.glsl). Click **Compile & Apply**.
 7. Click **Return to PBR** to restore the selected mesh's edited PBR material or **Reset selected material** to revert that mesh to its material before editing.
 
+## Anime Toon + Ink Outline demo
+
+Select a **static** mesh such as `Head` on the sample robot. In the **Custom Shader · GLSL** panel:
+
+1. Click **Load Anime Toon Demo**. The vertex/fragment textareas fill automatically.
+2. Keep **Ink outline** enabled and choose Outline Thickness (default 0.025 of the mesh's bounding sphere radius).
+3. Click **Compile & Apply**. The selected mesh should display cartoon-style hard shadow bands and a dark silhouette; the other parts keep their PBR materials.
+4. Click **Return to PBR** to switch it off. Click **Reset selected material** to remove changes and restore the original material.
+
+You can also download the two demo files from this repo and upload them using the UI:
+- [anime-toon.vert](../examples/shaders/anime-toon.vert)
+- [anime-toon.frag](../examples/shaders/anime-toon.frag)
+
+The outline uses an extra copy of the selected mesh geometry, drawn in BackSide mode with vertex positions expanded along normals. It is intended for ordinary static meshes with normals; this preview does not support skinned or animated meshes. The yellow selection box is separate and still visible on selected objects. Large outline values can create cracks around hard edges.
+
+**Shader error test:** after a successful anime shader application, replace `gl_FragColor` with an invalid identifier (e.g. `bad_FragColor`) in the fragment source and click **Compile & Apply**. You should see a compilation error, while the previously applied material remains visible.
+
 ## Shader authoring
 
 Raw WebGL GLSL only: not Unity ShaderLab, HLSL, JavaScript or a Unity .shader asset. Vertex and fragment sources must be complete GLSL ES 1.00 scripts. No shader files are sent to a server.
