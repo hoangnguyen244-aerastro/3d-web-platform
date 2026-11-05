@@ -1,0 +1,19 @@
+/* v0.3.1 mesh selection inspector */
+.mesh-selection-hint{padding:0 20px 14px;color:#d5b66d;font-size:12px}
+.mesh-panel-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:18px 0 9px;color:#e4edf8;font-size:12px}
+.mesh-panel-header span{background:#27384a;border-radius:14px;padding:3px 10px;color:#9fd6ff}
+.mesh-panel-header button{background:transparent;border:1px solid #405168;border-radius:6px;color:#b7cbe0;padding:4px 9px}
+.mesh-list{border:1px solid #304153;border-radius:9px;max-height:260px;overflow-y:auto;background:#111a25}
+.mesh-row{width:100%;display:flex;align-items:center;gap:8px;text-align:left;padding:10px 9px;background:transparent;border:0;border-bottom:1px solid #263647;color:#c5d1df;font-size:12px}
+.mesh-row:last-child{border-bottom:0}
+.mesh-row:hover{background:#22354a}
+.mesh-row.selected{background:#39402b;color:#ffe4aa;box-shadow:inset 3px 0 #ffd166}
+.mesh-icon{font-size:17px;color:#8db8d9;flex:none}
+.mesh-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.mesh-tris{font-size:10px;color:#8899aa;white-space:nowrap}
+.mesh-empty{padding:14px;color:#8c9aaa;font-size:12px}
+.mesh-details{border:1px solid #70623f;background:#262619;border-radius:9px;margin-top:12px;padding:2px 12px 12px;font-size:12px}
+.mesh-details p{color:#d4d7da;margin:7px 0;overflow-wrap:anywhere}
+.mesh-details b{color:#e9c776}
+.controls .materials-heading{margin-top:17px;border-top:1px solid #304153}
+@media(max-width:850px){.mesh-list{max-height:220px}}
