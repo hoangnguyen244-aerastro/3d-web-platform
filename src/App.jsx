@@ -1,13 +1,75 @@
 import { useRef, useState } from 'react';
-import './v031.css';
 import ModelViewer from './components/ModelViewer.jsx';
+import { ANIME_TOON_VERTEX, ANIME_TOON_FRAGMENT } from './shaders/animeToon.js';
 import './v02.css';
+import './v031.css';
+import './v032.css';
+import './anime-demo.css';
+
+const DEFAULT_VERTEX = `precision highp float;
+attribute vec3 position;
+attribute vec2 uv;
+uniform mat4 projectionMatrix;
+uniform mat4 modelViewMatrix;
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+const DEFAULT_FRAGMENT = `precision highp float;
+uniform float uTime;
+uniform vec3 uColor;
+uniform sampler2D uTexture;
+uniform float uUseTexture;
+varying vec2 vUv;
+void main() {
+  vec3 base = uColor;
+  if (uUseTexture > 0.5) base *= texture2D(uTexture, vUv).rgb;
+  float pulse = 0.76 + 0.24 * sin(uTime * 2.0);
+  gl_FragColor = vec4(base * pulse, 1.0);
+}`;
+
+const MAPS = [
+  ['map', 'Albedo / Base Map', 'sRGB'],
+  ['normalMap', 'Normal Map', 'Linear'],
+  ['metalnessMap', 'Metallic Map (B channel)', 'Linear'],
+  ['roughnessMap', 'Roughness Map (G channel)', 'Linear'],
+  ['emissiveMap', 'Emission Map', 'sRGB'],
+];
+
+function verifyGLSL(vertex, fragment) {
+  const canvas = document.createElement('canvas');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) return 'WebGL is unavailable in this browser.';
+  const compile = (kind, code) => {
+    const shader = gl.createShader(kind);
+    gl.shaderSource(shader, code);
+    gl.compileShader(shader);
+    const error = gl.getShaderParameter(shader, gl.COMPILE_STATUS) ? '' : gl.getShaderInfoLog(shader);
+    return { shader, error };
+  };
+  const v = compile(gl.VERTEX_SHADER, vertex);
+  const f = compile(gl.FRAGMENT_SHADER, fragment);
+  let message = v.error ? 'Vertex shader: ' + v.error : f.error ? 'Fragment shader: ' + f.error : '';
+  if (!message) {
+    const program = gl.createProgram();
+    gl.attachShader(program, v.shader);
+    gl.attachShader(program, f.shader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) message = 'Shader link: ' + gl.getProgramInfoLog(program);
+    gl.deleteProgram(program);
+  }
+  gl.deleteShader(v.shader);
+  gl.deleteShader(f.shader);
+  return message;
+}
 
 export default function App() {
   const [tab, setTab] = useState('viewer');
   const [file, setFile] = useState(null);
   const [meshes, setMeshes] = useState([]);
   const [selectedMeshId, setSelectedMeshId] = useState(null);
+  const [inspector, setInspector] = useState(null);
   const [color, setColor] = useState('#58b8ff');
   const [metalness, setMetalness] = useState(0.35);
   const [roughness, setRoughness] = useState(0.42);
@@ -15,91 +77,197 @@ export default function App() {
   const [showGrid, setShowGrid] = useState(false);
   const [resetCamera, setResetCamera] = useState(0);
   const [status, setStatus] = useState('Robot mẫu đang được hiển thị.');
+  const [shaderMessage, setShaderMessage] = useState('');
+  const [vertex, setVertex] = useState(DEFAULT_VERTEX);
+  const [fragment, setFragment] = useState(DEFAULT_FRAGMENT);
+  const [outlineEnabled, setOutlineEnabled] = useState(false);
+  const [outlineSize, setOutlineSize] = useState(0.025);
+  const [edit, setEdit] = useState(null);
   const input = useRef(null);
+  const idCounter = useRef(0);
+  const chosen = meshes.find(mesh => mesh.id === selectedMeshId);
 
-  function chooseFile(e) {
-    const chosen = e.target.files?.[0];
-    e.target.value = '';
-    if (!chosen) return;
-    if (!chosen.name.toLowerCase().endsWith('.glb')) {
-      setStatus('Chỉ hỗ trợ .glb tự chứa ở phiên bản này.');
-      return;
+  function command(type, extra = {}) {
+    if (!selectedMeshId) return;
+    setEdit({ sequence: ++idCounter.current, meshId: selectedMeshId, type, ...extra });
+  }
+  function select(id) {
+    setSelectedMeshId(id);
+    setInspector(null);
+    setShaderMessage('');
+  }
+  function chooseFile(event) {
+    const selected = event.target.files?.[0];
+    event.target.value = '';
+    if (!selected) return;
+    if (!selected.name.toLowerCase().endsWith('.glb')) {
+      setStatus('Chỉ hỗ trợ .glb tự chứa ở phiên bản này.'); return;
     }
-    if (chosen.size > 50 * 1024 * 1024) {
-      setStatus('File lớn hơn 50 MB. Hãy tối ưu trước khi mở.');
-      return;
+    if (selected.size > 50 * 1024 * 1024) {
+      setStatus('File lớn hơn 50 MB. Hãy tối ưu trước khi mở.'); return;
     }
-    setSelectedMeshId(null);
+    select(null);
     setMeshes([]);
-    setFile(chosen);
-    setStatus('Đang mở ' + chosen.name + '...');
+    setFile(selected);
+    setStatus('Đang mở ' + selected.name + '...');
   }
   function sampleRobot() {
-    setSelectedMeshId(null);
-    setMeshes([]);
-    setFile(null);
-    setColor('#58b8ff');
-    setMetalness(0.35);
-    setRoughness(0.42);
+    select(null); setMeshes([]); setFile(null);
+    setColor('#58b8ff'); setMetalness(.35); setRoughness(.42);
     setResetCamera(n => n + 1);
     setStatus('Đã trở về robot mẫu.');
   }
+  function textureUpload(event, slot) {
+    const selected = event.target.files?.[0];
+    event.target.value = '';
+    if (!selected) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(selected.type)) {
+      setShaderMessage('Texture must be PNG, JPEG or WebP.'); return;
+    }
+    if (selected.size > 15 * 1024 * 1024) {
+      setShaderMessage('Texture must be under 15 MB.'); return;
+    }
+    command('texture', { slot, file: selected });
+    setShaderMessage('');
+  }
+  async function shaderFile(event, stage) {
+    const selected = event.target.files?.[0];
+    event.target.value = '';
+    if (!selected) return;
+    if (selected.size > 64 * 1024) {
+      setShaderMessage('GLSL source must be under 64 KB.'); return;
+    }
+    const source = await selected.text();
+    if (stage === 'vertex') setVertex(source);
+    else setFragment(source);
+    setShaderMessage('Loaded ' + selected.name + '. Click Compile & Apply to test.');
+  }
+  function loadAnimeDemo() {
+    setVertex(ANIME_TOON_VERTEX);
+    setFragment(ANIME_TOON_FRAGMENT);
+    setOutlineEnabled(true);
+    setOutlineSize(0.025);
+    setShaderMessage('Anime Toon + Ink Outline demo loaded. Click Compile & Apply.');
+  }
+  function applyShader() {
+    if (!chosen) return;
+    const error = verifyGLSL(vertex, fragment);
+    if (error) { setShaderMessage(error); return; }
+    command('shader', { vertex, fragment, outlineEnabled, outlineSize });
+    setShaderMessage(outlineEnabled ? 'GLSL compiled. Anime ink outline enabled for supported meshes.' : 'Shaders compiled and linked successfully. Applied to selected mesh.');
+  }
   return <div className="app">
-    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.1 (feature)</span></header>
-    <section className="intro"><p className="eyebrow">YOUR 3D WORKSPACE</p><h1>Explore. Configure. Compare.</h1><p>Interactive model viewing and compression research tools.</p></section>
+    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.2 · feature preview</span></header>
+    <section className="intro"><p className="eyebrow">YOUR 3D WORKSPACE</p><h1>Explore. Configure. Compare.</h1><p>Model viewer · Unity-style material inspector · WebGL GLSL lab</p></section>
     <nav aria-label="Modules">
-      <button className={tab==='viewer'?'active':''} onClick={()=>setTab('viewer')}>◈ Model Viewer</button>
-      <button className={tab==='benchmark'?'active':''} onClick={()=>setTab('benchmark')}>▥ Compression Benchmark</button>
+      <button className={tab === 'viewer' ? 'active' : ''} onClick={() => setTab('viewer')}>◈ Model Viewer</button>
+      <button className={tab === 'benchmark' ? 'active' : ''} onClick={() => setTab('benchmark')}>▥ Compression Benchmark</button>
     </nav>
-    {tab === 'viewer' ? <div className="workspace">
+    {tab === 'viewer' ? <div className="workspace inspector-workspace">
       <section className="panel viewer">
-        <h3>{file?.name || 'Sample Robot'} <span>3D preview</span></h3>
+        <h3>{file?.name || 'Sample Robot'} <span>Scene view</span></h3>
         <div className="v02-toolbar">
-          <input ref={input} type="file" hidden accept=".glb,model/gltf-binary" onChange={chooseFile} aria-label="Open GLB" />
-          <button onClick={()=>input.current?.click()}>↑ Open GLB</button>
+          <input ref={input} type="file" hidden accept=".glb,model/gltf-binary" onChange={chooseFile} aria-label="Open GLB"/>
+          <button onClick={() => input.current?.click()}>↑ Open GLB</button>
           <button onClick={sampleRobot} disabled={!file}>↺ Sample robot</button>
-          <button onClick={()=>setResetCamera(n=>n+1)}>◎ Reset camera</button>
+          <button onClick={() => setResetCamera(n => n + 1)}>◎ Reset camera</button>
         </div>
         <ModelViewer file={file} color={color} metalness={metalness} roughness={roughness}
-          autoRotate={autoRotate} showGrid={showGrid} resetToken={resetCamera} onStatus={setStatus}
-          onMeshesChange={setMeshes} selectedMeshId={selectedMeshId} onSelectMesh={setSelectedMeshId}/>
-        <p className="caption">Drag to orbit · Scroll to zoom · Right-drag to pan</p>
+          autoRotate={autoRotate} showGrid={showGrid} resetToken={resetCamera}
+          onStatus={setStatus} onMeshesChange={setMeshes} selectedMeshId={selectedMeshId}
+          onSelectMesh={select} editCommand={edit} onInspectorChange={setInspector}/>
+        <p className="caption">Left click to select · Drag to orbit · Scroll to zoom · Right-drag to pan</p>
         <p className="v02-status" role="status">{status}</p>
-        <div className="mesh-selection-hint">Click a mesh in the viewport or select it from the list →</div>
       </section>
-      <aside className="panel controls"><h3>Mesh selection · v0.3.1</h3>
-        <p className="v02-help">Select a mesh by clicking it in the 3D view or from the list below. The selected mesh is outlined in gold.</p>
-        <div className="mesh-panel-header"><strong>Scene meshes</strong><span>{meshes.length}</span></div>
-        <div className="mesh-list" role="listbox" aria-label="Model meshes">
-          {meshes.length === 0 ? <p className="mesh-empty">{status.startsWith("Không thể mở GLB") ? "Không thể đọc danh sách mesh từ file này. Hãy mở một GLB hợp lệ hoặc chọn Sample robot." : file && status.startsWith("Đang mở") ? "Đang tải danh sách mesh..." : "Không tìm thấy mesh trong mô hình."}</p> : meshes.map(mesh =>
-            <button key={mesh.id} type="button" role="option" aria-selected={selectedMeshId === mesh.id}
-              className={selectedMeshId === mesh.id ? "mesh-row selected" : "mesh-row"}
-              onClick={() => setSelectedMeshId(mesh.id)}>
-              <span className="mesh-icon">◇</span><span className="mesh-name">{mesh.name}</span>
-              <span className="mesh-tris">{mesh.triangles.toLocaleString()} tris</span>
-            </button>)}
-        </div>
-        {selectedMeshId && meshes.some(mesh => mesh.id === selectedMeshId) && <div className="mesh-details">
-          <div className="mesh-panel-header"><strong>Selected mesh</strong><button type="button" onClick={() => setSelectedMeshId(null)}>Clear</button></div>
-          {meshes.filter(mesh => mesh.id === selectedMeshId).map(mesh => <div key={mesh.id}>
-            <p><b>Name:</b> {mesh.name}</p><p><b>Vertices:</b> {mesh.vertices.toLocaleString()}</p>
-            <p><b>Triangles:</b> {mesh.triangles.toLocaleString()}</p>
-          </div>)}
-        </div>}
-        <h3 className="materials-heading">Material & scene settings</h3>
-        <p className="v02-help">Applies a color tint and PBR values to compatible meshes. Original textures stay attached.</p>
-        <label htmlFor="model-color">Base color</label>
-        <div className="colors"><input id="model-color" type="color" value={color} onChange={e=>setColor(e.target.value)}/><code>{color.toUpperCase()}</code></div>
-        <label htmlFor="model-metalness">Metalness: {metalness.toFixed(2)}</label>
-        <input id="model-metalness" type="range" min="0" max="1" step="0.01" value={metalness} onChange={e=>setMetalness(Number(e.target.value))}/>
-        <label htmlFor="model-roughness">Roughness: {roughness.toFixed(2)}</label>
-        <input id="model-roughness" type="range" min="0" max="1" step="0.01" value={roughness} onChange={e=>setRoughness(Number(e.target.value))}/>
-        <label className="check">Auto-rotate <input type="checkbox" checked={autoRotate} onChange={e=>setAutoRotate(e.target.checked)}/></label>
-        <label className="check">Show grid <input type="checkbox" checked={showGrid} onChange={e=>setShowGrid(e.target.checked)}/></label>
-        <button className="reset" onClick={()=>{setColor('#58b8ff');setMetalness(.35);setRoughness(.42)}}>Reset material</button>
-        <p className="note">Files stay in your browser and are not uploaded. Self-contained .glb files up to 50 MB are supported; per-mesh editing is planned for v0.3.</p>
+
+      <aside className="panel inspector-side" tabIndex={0} aria-label="Material Inspector — scroll to edit shader and texture settings">
+        <section className="unity-section">
+          <div className="unity-section-title"><span>▤ Hierarchy</span><small>{meshes.length} meshes</small></div>
+          <div className="mesh-list unity-mesh-list" role="listbox" aria-label="Model meshes">
+            {meshes.length ? meshes.map(mesh =>
+              <button key={mesh.id} type="button" role="option" aria-selected={selectedMeshId === mesh.id}
+                className={selectedMeshId === mesh.id ? 'mesh-row selected' : 'mesh-row'} onClick={() => select(mesh.id)}>
+                <span className="mesh-icon">◇</span><span className="mesh-name">{mesh.name}</span>
+                <span className="mesh-tris">{mesh.triangles.toLocaleString()} tris</span>
+              </button>) : <p className="mesh-empty">{status.startsWith('Không thể mở') ? 'Invalid model.' : 'No meshes yet.'}</p>}
+          </div>
+        </section>
+
+        <section className="unity-section">
+          <div className="unity-section-title"><span>⚙ Inspector</span><small>{chosen ? 'Mesh' : 'No selection'}</small></div>
+          {!chosen ? <p className="unity-placeholder">Select a mesh from Hierarchy or click it in the Scene view.</p> : <>
+            <div className="unity-object">
+              <strong>◇ {chosen.name}</strong>
+              <span>{chosen.vertices.toLocaleString()} vertices · {chosen.triangles.toLocaleString()} triangles</span>
+            </div>
+            <div className="unity-component">
+              <div className="unity-component-heading">▾ Mesh Renderer <small>Material {inspector?.slotCount > 1 ? '1 / ' + inspector.slotCount : ''}</small></div>
+              <div className="unity-row"><label>Shader</label><strong>{inspector?.mode === 'shader' ? 'Custom WebGL GLSL' : 'Standard PBR'}</strong></div>
+              {inspector?.slotCount > 1 && <p className="unity-tip">This preview edits material slot 1 only.</p>}
+              <div className="unity-row"><label>Visible</label><input type="checkbox" checked={inspector?.visible ?? true} onChange={e => command('visible', { value: e.target.checked })}/></div>
+              <div className="unity-row"><label>Wireframe</label><input type="checkbox" checked={inspector?.wireframe ?? false} onChange={e => command('wireframe', { value: e.target.checked })}/></div>
+            </div>
+            <div className="unity-component">
+              <div className="unity-component-heading">▾ Material Properties</div>
+              <div className="unity-row"><label>Base Color</label><input aria-label="Selected mesh base color" type="color" value={inspector?.baseColor || '#ffffff'} disabled={inspector?.mode === 'shader'} onChange={e => command('property', { property: 'color', value: e.target.value })}/></div>
+              {['metalness', 'roughness'].map(key => <div key={key} className="unity-slider-row">
+                <label>{key === 'metalness' ? 'Metallic' : 'Smoothness / Roughness'} <span>{Number(inspector?.[key] ?? 0).toFixed(2)}</span></label>
+                <input type="range" min="0" max="1" step="0.01" disabled={inspector?.mode === 'shader'}
+                  value={inspector?.[key] ?? 0} onChange={e => command('property', { property:key, value:Number(e.target.value) })}/>
+              </div>)}
+              <div className="unity-row"><label>Emissive</label><input aria-label="Selected mesh emissive color" type="color" value={inspector?.emissive || '#000000'} disabled={inspector?.mode === 'shader'} onChange={e => command('property', { property:'emissive', value:e.target.value })}/></div>
+            </div>
+            <div className="unity-component">
+              <div className="unity-component-heading">▾ Texture Slots <small>PNG · JPEG · WebP</small></div>
+              {MAPS.map(([slot, label, colorMode]) => <div className="unity-texture-row" key={slot}>
+                <div><strong>{label}</strong><small>{colorMode} · {inspector?.textures?.[slot] || 'None'}</small></div>
+                <label className="unity-upload">Import<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => textureUpload(e, slot)}/></label>
+                <button type="button" onClick={() => command('removeTexture', { slot })} disabled={!inspector?.textures?.[slot]}>×</button>
+              </div>)}
+              <p className="unity-tip">Metallic uses blue (B), Roughness green (G) in glTF PBR. UV mapping required.</p>
+            </div>
+            <div className="unity-component">
+              <div className="unity-component-heading">▾ Custom Shader · GLSL <small>WebGL</small></div>
+              <p className="unity-tip">Standalone GLSL ES 1.00 vertex + fragment sources. RawShaderMaterial, not Unity ShaderLab/HLSL or JavaScript.</p>
+              <div className="anime-demo-box">
+                <strong>✦ Anime Toon + Ink Outline</strong>
+                <p>3-step cel shading, rim light and a black inverted-hull silhouette around the selected mesh.</p>
+                <button type="button" className="anime-demo-button" onClick={loadAnimeDemo}>Load Anime Toon Demo</button>
+              </div>
+              <label className="unity-check">Ink outline (static meshes) <input type="checkbox" checked={outlineEnabled} onChange={e=>setOutlineEnabled(e.target.checked)}/></label>
+              <div className="unity-slider-row"><label>Outline Thickness <span>{outlineSize.toFixed(3)}</span></label><input type="range" min="0.005" max="0.1" step="0.005" value={outlineSize} disabled={!outlineEnabled} onChange={e=>setOutlineSize(Number(e.target.value))}/></div>
+              <p className="unity-tip">Outline thickness is relative to mesh bounds. Changes take effect after Compile & Apply. Skinned meshes are excluded in this preview.</p>
+              <label className="unity-code-label">Vertex Shader <span>.vert / .glsl</span></label>
+              <textarea className="unity-code" rows={8} spellCheck={false} value={vertex} onChange={e => setVertex(e.target.value)}/>
+              <label className="unity-upload unity-upload-inline">↑ Upload Vertex GLSL<input type="file" accept=".vert,.vs,.glsl,.txt" onChange={e => shaderFile(e, 'vertex')}/></label>
+              <label className="unity-code-label">Fragment Shader <span>.frag / .glsl</span></label>
+              <textarea className="unity-code" rows={8} spellCheck={false} value={fragment} onChange={e => setFragment(e.target.value)}/>
+              <label className="unity-upload unity-upload-inline">↑ Upload Fragment GLSL<input type="file" accept=".frag,.fs,.glsl,.txt" onChange={e => shaderFile(e, 'fragment')}/></label>
+              <div className="unity-action-row">
+                <button type="button" className="unity-primary" onClick={applyShader}>Compile & Apply</button>
+                <button type="button" onClick={() => command('pbr')}>Return to PBR</button>
+              </div>
+              {shaderMessage && <p className="unity-compiler-log" role="status">{shaderMessage}</p>}
+              <p className="unity-tip">Built-in demo uniforms: uTime, uColor, uTexture, uUseTexture. Custom GLSL runs on the GPU; use trusted files.</p>
+            </div>
+            <button className="unity-reset" onClick={() => command('reset')}>↺ Reset selected material</button>
+          </>}
+        </section>
+        <section className="unity-section">
+          <div className="unity-section-title">Scene Settings</div>
+          <label className="unity-check">Auto-rotate <input type="checkbox" checked={autoRotate} onChange={e => setAutoRotate(e.target.checked)}/></label>
+          <label className="unity-check">Show grid <input type="checkbox" checked={showGrid} onChange={e => setShowGrid(e.target.checked)}/></label>
+          <details className="unity-legacy"><summary>Global PBR override (v0.2)</summary>
+            <p>Overrides properties on all Standard PBR meshes. Use Inspector controls for individual mesh editing.</p>
+            <label>Color <input type="color" value={color} onChange={e => setColor(e.target.value)}/></label>
+            <label>Metalness {metalness.toFixed(2)} <input type="range" min="0" max="1" step=".01" value={metalness} onChange={e => setMetalness(+e.target.value)}/></label>
+            <label>Roughness {roughness.toFixed(2)} <input type="range" min="0" max="1" step=".01" value={roughness} onChange={e => setRoughness(+e.target.value)}/></label>
+            <button onClick={() => {setColor('#58b8ff'); setMetalness(.35); setRoughness(.42);}}>Reset global settings</button>
+          </details>
+          <p className="unity-tip">Everything runs locally in the browser. No model, texture or shader is uploaded to a server. Changes are session-only (GLB export comes later).</p>
+        </section>
       </aside>
-    </div> : <section className="panel benchmark"><h2>Compression Benchmark</h2><p>Phase 2: Compare original and compressed 3D models, synchronized cameras, metrics and reports.</p><p className="note">The benchmark engine has not been implemented yet.</p></section>}
-    <footer>React + Three.js + React Three Fiber · Mesh Selection v0.3.1</footer>
+    </div> : <section className="panel benchmark"><h2>Compression Benchmark</h2><p>Original vs compressed model comparison is planned. No compression engine is implemented yet.</p></section>}
+    <footer>React + Three.js + React Three Fiber · Material Inspector v0.3.2</footer>
   </div>;
 }
