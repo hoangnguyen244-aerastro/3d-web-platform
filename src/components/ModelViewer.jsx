@@ -2,8 +2,9 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Box3, BoxHelper, Color, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
+import { BackSide, Box3, BoxHelper, Color, Mesh, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
+import { ANIME_OUTLINE_VERTEX, ANIME_OUTLINE_FRAGMENT } from '../shaders/animeToon.js';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
 const COLOR_SLOTS = new Set(['map', 'emissiveMap']);
@@ -148,7 +149,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       if (!node.isMesh) return;
       current.set(node.uuid, {
         mesh: node, original: firstMaterial(node),
-        pbr: null, shader: null, mode: 'pbr',
+        pbr: null, shader: null, outline: null, mode: 'pbr',
         uploads: new Map(), textureNames: new Map(),
         originalVisible: node.visible,
       });
@@ -161,6 +162,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       current.forEach(entry => {
         entry.mesh.visible = entry.originalVisible;
         setFirstMaterial(entry.mesh, entry.original);
+        clearOutline(entry);
         entry.pbr?.dispose();
         entry.shader?.dispose();
         entry.uploads.forEach(texture => texture.dispose());
@@ -180,6 +182,35 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       entry.pbr = entry.original.clone();
     }
     return entry.pbr;
+  }
+  function clearOutline(entry) {
+    if (!entry.outline) return;
+    entry.mesh.remove(entry.outline);
+    entry.outline.material.dispose();
+    // Geometry is shared with the original mesh: never dispose it here.
+    entry.outline = null;
+  }
+  function createOutline(entry, widthFraction) {
+    const mesh = entry.mesh;
+    if (mesh.isSkinnedMesh || !mesh.geometry?.getAttribute('normal')) {
+      onStatus('Outline needs a static mesh with vertex normals.');
+      return;
+    }
+    mesh.geometry.computeBoundingSphere();
+    const radius = Math.max(mesh.geometry.boundingSphere?.radius || 1, 0.001);
+    const material = new RawShaderMaterial({
+      vertexShader: ANIME_OUTLINE_VERTEX,
+      fragmentShader: ANIME_OUTLINE_FRAGMENT,
+      side: BackSide,
+      uniforms: { uOutlineWidth: { value: radius * widthFraction } },
+    });
+    const outline = new Mesh(mesh.geometry, material);
+    outline.name = 'Ink outline helper (not selectable)';
+    outline.raycast = () => {};
+    outline.frustumCulled = mesh.frustumCulled;
+    outline.renderOrder = -1;
+    mesh.add(outline);
+    entry.outline = outline;
   }
   function notify(entry) { onInspectorChange(inspectorInfo(entry)); }
   useEffect(() => {
@@ -210,6 +241,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     if (!entry) return;
     const { type, property, value, slot } = editCommand;
     if (type === 'reset') {
+      clearOutline(entry);
       entry.shader?.dispose(); entry.shader = null;
       entry.pbr?.dispose(); entry.pbr = null;
       entry.uploads.forEach(texture => texture.dispose());
@@ -220,6 +252,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     } else if (type === 'visible') {
       entry.mesh.visible = value;
     } else if (type === 'shader') {
+      clearOutline(entry);
       entry.shader?.dispose();
       const pbr = entry.pbr || entry.original;
       const texture = pbr?.map || null;
@@ -235,7 +268,9 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       entry.shader = shader;
       entry.mode = 'shader';
       setFirstMaterial(entry.mesh, shader);
+      if (editCommand.outlineEnabled) createOutline(entry, editCommand.outlineSize || 0.025);
     } else if (type === 'pbr') {
+      clearOutline(entry);
       entry.mode = 'pbr';
       setFirstMaterial(entry.mesh, entry.pbr || entry.original);
     } else if (type === 'property' || type === 'wireframe') {
