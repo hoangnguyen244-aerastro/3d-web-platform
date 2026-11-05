@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import ModelViewer from './components/ModelViewer.jsx';
+import { ANIME_TOON_VERTEX, ANIME_TOON_FRAGMENT } from './shaders/animeToon.js';
 import './v02.css';
 import './v031.css';
 import './v032.css';
@@ -78,6 +79,8 @@ export default function App() {
   const [shaderMessage, setShaderMessage] = useState('');
   const [vertex, setVertex] = useState(DEFAULT_VERTEX);
   const [fragment, setFragment] = useState(DEFAULT_FRAGMENT);
+  const [outlineEnabled, setOutlineEnabled] = useState(false);
+  const [outlineSize, setOutlineSize] = useState(0.025);
   const [edit, setEdit] = useState(null);
   const input = useRef(null);
   const idCounter = useRef(0);
@@ -138,12 +141,19 @@ export default function App() {
     else setFragment(source);
     setShaderMessage('Loaded ' + selected.name + '. Click Compile & Apply to test.');
   }
+  function loadAnimeDemo() {
+    setVertex(ANIME_TOON_VERTEX);
+    setFragment(ANIME_TOON_FRAGMENT);
+    setOutlineEnabled(true);
+    setOutlineSize(0.025);
+    setShaderMessage('Anime Toon + Ink Outline demo loaded. Click Compile & Apply.');
+  }
   function applyShader() {
     if (!chosen) return;
     const error = verifyGLSL(vertex, fragment);
     if (error) { setShaderMessage(error); return; }
-    command('shader', { vertex, fragment });
-    setShaderMessage('Shaders compiled and linked successfully. Applied to selected mesh.');
+    command('shader', { vertex, fragment, outlineEnabled, outlineSize });
+    setShaderMessage(outlineEnabled ? 'GLSL compiled. Anime ink outline enabled for supported meshes.' : 'Shaders compiled and linked successfully. Applied to selected mesh.');
   }
   return <div className="app">
     <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.2 · feature preview</span></header>
@@ -218,6 +228,14 @@ export default function App() {
             <div className="unity-component">
               <div className="unity-component-heading">▾ Custom Shader · GLSL <small>WebGL</small></div>
               <p className="unity-tip">Standalone GLSL ES 1.00 vertex + fragment sources. RawShaderMaterial, not Unity ShaderLab/HLSL or JavaScript.</p>
+              <div className="anime-demo-box">
+                <strong>✦ Anime Toon + Ink Outline</strong>
+                <p>3-step cel shading, rim light and a black inverted-hull silhouette around the selected mesh.</p>
+                <button type="button" className="anime-demo-button" onClick={loadAnimeDemo}>Load Anime Toon Demo</button>
+              </div>
+              <label className="unity-check">Ink outline (static meshes) <input type="checkbox" checked={outlineEnabled} onChange={e=>setOutlineEnabled(e.target.checked)}/></label>
+              <div className="unity-slider-row"><label>Outline Thickness <span>{outlineSize.toFixed(3)}</span></label><input type="range" min="0.005" max="0.1" step="0.005" value={outlineSize} disabled={!outlineEnabled} onChange={e=>setOutlineSize(Number(e.target.value))}/></div>
+              <p className="unity-tip">Outline thickness is relative to mesh bounds. Changes take effect after Compile & Apply. Skinned meshes are excluded in this preview.</p>
               <label className="unity-code-label">Vertex Shader <span>.vert / .glsl</span></label>
               <textarea className="unity-code" rows={8} spellCheck={false} value={vertex} onChange={e => setVertex(e.target.value)}/>
               <label className="unity-upload unity-upload-inline">↑ Upload Vertex GLSL<input type="file" accept=".vert,.vs,.glsl,.txt" onChange={e => shaderFile(e, 'vertex')}/></label>
