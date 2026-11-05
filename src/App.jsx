@@ -180,7 +180,7 @@ export default function App() {
         <p className="v02-status" role="status">{status}</p>
       </section>
 
-      <aside className="panel inspector-side">
+      <aside className="panel inspector-side" tabIndex={0} aria-label="Material Inspector — scroll to edit shader and texture settings">
         <section className="unity-section">
           <div className="unity-section-title"><span>▤ Hierarchy</span><small>{meshes.length} meshes</small></div>
           <div className="mesh-list unity-mesh-list" role="listbox" aria-label="Model meshes">
