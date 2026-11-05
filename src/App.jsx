@@ -4,6 +4,7 @@ import { ANIME_TOON_VERTEX, ANIME_TOON_FRAGMENT } from './shaders/animeToon.js';
 import './v02.css';
 import './v031.css';
 import './v032.css';
+import './anime-demo.css';
 
 const DEFAULT_VERTEX = `precision highp float;
 attribute vec3 position;
