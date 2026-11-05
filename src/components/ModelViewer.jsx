@@ -111,7 +111,9 @@ function Highlight({ root, selectedMeshId }) {
 }
 function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetToken,
   onStatus, onMeshesChange, selectedMeshId, onSelectMesh, editCommand, onInspectorChange }) {
-  const [model, setModel] = useState(null);
+  const [loadedModel, setLoadedModel] = useState(null);
+  const model = loadedModel?.file === file ? loadedModel.scene : null;
+  const registeredScenes = useRef(new WeakSet());
   const robotRef = useRef(null);
   const registry = useRef(new Map());
   const activeRoot = file ? model : robotRef.current;
@@ -120,20 +122,23 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
   useEffect(() => {
     let cancelled = false;
     let loaded = null;
-    setModel(null);
+    setLoadedModel(null);
     if (!file) return () => { cancelled = true; };
     (async () => {
       try {
         const gltf = await new GLTFLoader().parseAsync(await file.arrayBuffer(), '');
         loaded = gltf.scene;
         if (cancelled) { disposeModel(loaded); return; }
-        setModel(loaded);
+        setLoadedModel({ file, scene: loaded });
         onStatus('Đã mở ' + file.name + ' (' + (file.size / 1048576).toFixed(2) + ' MB).');
       } catch (error) {
         if (!cancelled) onStatus('Không thể mở GLB: ' + (error?.message || 'File không hợp lệ.'));
       }
     })();
-    return () => { cancelled = true; disposeModel(loaded); };
+    return () => {
+      cancelled = true;
+      if (loaded && !registeredScenes.current.has(loaded)) disposeModel(loaded);
+    };
   }, [file, onStatus]);
 
   useEffect(() => {
@@ -149,6 +154,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       });
     });
     registry.current = current;
+    if (file && model) registeredScenes.current.add(model);
     onMeshesChange(collectMeshes(root));
     onInspectorChange(null);
     return () => {
@@ -160,6 +166,10 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
         entry.uploads.forEach(texture => texture.dispose());
       });
       if (registry.current === current) registry.current = new Map();
+      if (file && model) {
+        registeredScenes.current.delete(model);
+        disposeModel(model);
+      }
       onMeshesChange([]);
       onInspectorChange(null);
     };
