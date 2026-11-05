@@ -52,3 +52,60 @@
 .unity-legacy p{line-height:1.5;font-size:11px}
 @media(max-width:950px){.inspector-workspace{grid-template-columns:1fr}.inspector-side{max-width:none}}
 @media(max-width:500px){.inspector-workspace .canvas{height:330px}.unity-section{padding-left:10px;padding-right:10px}.unity-section-title{margin-left:-10px;margin-right:-10px;padding-left:10px;padding-right:10px}}
+
+/* Split-pane workspace: Inspector scrolls independently while Scene View stays visible. */
+@media (min-width: 951px) {
+  .inspector-workspace > .viewer {
+    position: sticky;
+    top: 12px;
+    min-width: 0;
+    align-self: start;
+    z-index: 1;
+  }
+  .inspector-workspace > .inspector-side {
+    align-self: start;
+    height: calc(100vh - 24px);
+    height: calc(100dvh - 24px);
+    min-height: 340px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+  .inspector-workspace > .viewer .canvas {
+    height: clamp(260px, calc(100dvh - 220px), 520px);
+  }
+}
+/* On tablet, pin a shorter Scene View and give Inspector its own scroll area. */
+@media (min-width: 701px) and (max-width: 950px) {
+  .inspector-workspace > .viewer {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    min-width: 0;
+  }
+  .inspector-workspace > .viewer .canvas {
+    height: clamp(180px, 28dvh, 260px);
+  }
+  .inspector-workspace > .inspector-side {
+    max-height: 64dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+}
+/* On narrow phones, use normal page scrolling so neither pane becomes unusably small. */
+@media (max-width: 700px) {
+  .inspector-workspace > .viewer {
+    position: static;
+  }
+  .inspector-workspace > .inspector-side {
+    overflow: visible;
+    max-height: none;
+  }
+}
+/* A visible, keyboard-accessible scroll region in supported browsers. */
+.inspector-workspace > .inspector-side {
+  scrollbar-color: #697989 #22272d;
+  scrollbar-width: thin;
+}
