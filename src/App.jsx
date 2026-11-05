@@ -1,10 +1,13 @@
 import { useRef, useState } from 'react';
+import './v031.css';
 import ModelViewer from './components/ModelViewer.jsx';
 import './v02.css';
 
 export default function App() {
   const [tab, setTab] = useState('viewer');
   const [file, setFile] = useState(null);
+  const [meshes, setMeshes] = useState([]);
+  const [selectedMeshId, setSelectedMeshId] = useState(null);
   const [color, setColor] = useState('#58b8ff');
   const [metalness, setMetalness] = useState(0.35);
   const [roughness, setRoughness] = useState(0.42);
@@ -26,10 +29,14 @@ export default function App() {
       setStatus('File lớn hơn 50 MB. Hãy tối ưu trước khi mở.');
       return;
     }
+    setSelectedMeshId(null);
+    setMeshes([]);
     setFile(chosen);
     setStatus('Đang mở ' + chosen.name + '...');
   }
   function sampleRobot() {
+    setSelectedMeshId(null);
+    setMeshes([]);
     setFile(null);
     setColor('#58b8ff');
     setMetalness(0.35);
@@ -38,7 +45,7 @@ export default function App() {
     setStatus('Đã trở về robot mẫu.');
   }
   return <div className="app">
-    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.2</span></header>
+    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.1 (feature)</span></header>
     <section className="intro"><p className="eyebrow">YOUR 3D WORKSPACE</p><h1>Explore. Configure. Compare.</h1><p>Interactive model viewing and compression research tools.</p></section>
     <nav aria-label="Modules">
       <button className={tab==='viewer'?'active':''} onClick={()=>setTab('viewer')}>◈ Model Viewer</button>
@@ -54,11 +61,32 @@ export default function App() {
           <button onClick={()=>setResetCamera(n=>n+1)}>◎ Reset camera</button>
         </div>
         <ModelViewer file={file} color={color} metalness={metalness} roughness={roughness}
-          autoRotate={autoRotate} showGrid={showGrid} resetToken={resetCamera} onStatus={setStatus}/>
+          autoRotate={autoRotate} showGrid={showGrid} resetToken={resetCamera} onStatus={setStatus}
+          onMeshesChange={setMeshes} selectedMeshId={selectedMeshId} onSelectMesh={setSelectedMeshId}/>
         <p className="caption">Drag to orbit · Scroll to zoom · Right-drag to pan</p>
         <p className="v02-status" role="status">{status}</p>
+        <div className="mesh-selection-hint">Click a mesh in the viewport or select it from the list →</div>
       </section>
-      <aside className="panel controls"><h3>Material & scene settings</h3>
+      <aside className="panel controls"><h3>Mesh selection · v0.3.1</h3>
+        <p className="v02-help">Select a mesh by clicking it in the 3D view or from the list below. The selected mesh is outlined in gold.</p>
+        <div className="mesh-panel-header"><strong>Scene meshes</strong><span>{meshes.length}</span></div>
+        <div className="mesh-list" role="listbox" aria-label="Model meshes">
+          {meshes.length === 0 ? <p className="mesh-empty">{status.startsWith("Không thể mở GLB") ? "Không thể đọc danh sách mesh từ file này. Hãy mở một GLB hợp lệ hoặc chọn Sample robot." : file && status.startsWith("Đang mở") ? "Đang tải danh sách mesh..." : "Không tìm thấy mesh trong mô hình."}</p> : meshes.map(mesh =>
+            <button key={mesh.id} type="button" role="option" aria-selected={selectedMeshId === mesh.id}
+              className={selectedMeshId === mesh.id ? "mesh-row selected" : "mesh-row"}
+              onClick={() => setSelectedMeshId(mesh.id)}>
+              <span className="mesh-icon">◇</span><span className="mesh-name">{mesh.name}</span>
+              <span className="mesh-tris">{mesh.triangles.toLocaleString()} tris</span>
+            </button>)}
+        </div>
+        {selectedMeshId && meshes.some(mesh => mesh.id === selectedMeshId) && <div className="mesh-details">
+          <div className="mesh-panel-header"><strong>Selected mesh</strong><button type="button" onClick={() => setSelectedMeshId(null)}>Clear</button></div>
+          {meshes.filter(mesh => mesh.id === selectedMeshId).map(mesh => <div key={mesh.id}>
+            <p><b>Name:</b> {mesh.name}</p><p><b>Vertices:</b> {mesh.vertices.toLocaleString()}</p>
+            <p><b>Triangles:</b> {mesh.triangles.toLocaleString()}</p>
+          </div>)}
+        </div>}
+        <h3 className="materials-heading">Material & scene settings</h3>
         <p className="v02-help">Applies a color tint and PBR values to compatible meshes. Original textures stay attached.</p>
         <label htmlFor="model-color">Base color</label>
         <div className="colors"><input id="model-color" type="color" value={color} onChange={e=>setColor(e.target.value)}/><code>{color.toUpperCase()}</code></div>
@@ -72,6 +100,6 @@ export default function App() {
         <p className="note">Files stay in your browser and are not uploaded. Self-contained .glb files up to 50 MB are supported; per-mesh editing is planned for v0.3.</p>
       </aside>
     </div> : <section className="panel benchmark"><h2>Compression Benchmark</h2><p>Phase 2: Compare original and compressed 3D models, synchronized cameras, metrics and reports.</p><p className="note">The benchmark engine has not been implemented yet.</p></section>}
-    <footer>React + Three.js + React Three Fiber · Model Viewer v0.2</footer>
+    <footer>React + Three.js + React Three Fiber · Mesh Selection v0.3.1</footer>
   </div>;
 }

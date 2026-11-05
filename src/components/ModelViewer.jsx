@@ -1,8 +1,8 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Box3, Vector3 } from 'three';
+import { Box3, BoxHelper, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
 
 function disposeScene(scene) {
@@ -65,8 +65,51 @@ function FramedCamera({ scene, resetToken, autoRotate }) {
   return <OrbitControls ref={controls} autoRotate={autoRotate} autoRotateSpeed={1.2} makeDefault/>;
 }
 
-function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetToken, onStatus }) {
+function collectMeshes(root) {
+  if (!root) return [];
+  const items = [];
+  root.traverse(node => {
+    if (!node.isMesh || !node.geometry) return;
+    const geometry = node.geometry;
+    const vertices = geometry.getAttribute('position')?.count || 0;
+    const count = geometry.index?.count || vertices;
+    items.push({
+      id: node.uuid,
+      name: node.name || ('Mesh ' + (items.length + 1)),
+      vertices,
+      triangles: Math.floor(count / 3),
+    });
+  });
+  return items;
+}
+
+function SelectionHighlight({ root, selectedMeshId }) {
+  const { scene } = useThree();
+  const helper = useRef(null);
+
+  useEffect(() => {
+    const target = root?.getObjectByProperty('uuid', selectedMeshId);
+    if (!target?.isMesh) return;
+    const box = new BoxHelper(target, 0xffd166);
+    box.raycast = () => {};
+    box.renderOrder = 999;
+    scene.add(box);
+    helper.current = box;
+    return () => {
+      scene.remove(box);
+      box.geometry.dispose();
+      box.material.dispose();
+      if (helper.current === box) helper.current = null;
+    };
+  }, [root, selectedMeshId, scene]);
+
+  useFrame(() => { helper.current?.update(); });
+  return null;
+}
+
+function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetToken, onStatus, onMeshesChange, selectedMeshId, onSelectMesh }) {
   const [model, setModel] = useState(null);
+  const robotRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,20 +136,33 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     return () => { cancelled = true; disposeScene(loaded); };
   }, [file, onStatus]);
 
+  useEffect(() => {
+    const root = file ? model : robotRef.current;
+    onMeshesChange(collectMeshes(root));
+    return () => onMeshesChange([]);
+  }, [file, model, onMeshesChange]);
+
+  function selectFromPointer(event) {
+    if (!event.object?.isMesh) return;
+    event.stopPropagation();
+    onSelectMesh(event.object.uuid);
+  }
+
   return <>
     <color attach="background" args={['#111c2b']}/>
     <ambientLight intensity={1.3}/><directionalLight position={[4,6,5]} intensity={2}/>
-    {file ? model && <MaterialModel scene={model} color={color} metalness={metalness} roughness={roughness}/> :
-      <SampleRobot color={color} metalness={metalness} roughness={roughness}/>}
+    {file ? model && <group onPointerDown={selectFromPointer}><MaterialModel scene={model} color={color} metalness={metalness} roughness={roughness}/></group> :
+      <group ref={robotRef} onPointerDown={selectFromPointer}><SampleRobot color={color} metalness={metalness} roughness={roughness}/></group>}
     {!file && <ContactShadows position={[0,-1.3,0]} scale={5} opacity={0.35} blur={2} far={3}/>}
     {showGrid && <gridHelper args={[20,20,'#4a7392','#263b52']} position={[0,-1.32,0]}/>}
     <FramedCamera scene={file ? model : null} resetToken={resetToken} autoRotate={autoRotate}/>
+    <SelectionHighlight root={file ? model : robotRef.current} selectedMeshId={selectedMeshId}/>
   </>;
 }
 
 export default function ModelViewer(props) {
   return <div className="canvas">
-    <Canvas camera={{ position: [3.5,2.5,5], fov:42 }} dpr={[1,1.75]}>
+    <Canvas camera={{ position: [3.5,2.5,5], fov:42 }} dpr={[1,1.75]} onPointerMissed={() => props.onSelectMesh(null)}>
       <Suspense fallback={null}><Scene {...props}/></Suspense>
     </Canvas>
   </div>;
