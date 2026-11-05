@@ -2,10 +2,20 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Box3, BoxHelper, Vector3 } from 'three';
+import { Box3, BoxHelper, Color, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
 
-function disposeScene(scene) {
+const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
+const COLOR_SLOTS = new Set(['map', 'emissiveMap']);
+
+function firstMaterial(node) {
+  return Array.isArray(node.material) ? node.material[0] : node.material;
+}
+function setFirstMaterial(node, material) {
+  if (Array.isArray(node.material)) node.material = [material, ...node.material.slice(1)];
+  else node.material = material;
+}
+function disposeModel(scene) {
   if (!scene) return;
   const geometries = new Set(), materials = new Set(), textures = new Set();
   scene.traverse(node => {
@@ -20,24 +30,40 @@ function disposeScene(scene) {
   materials.forEach(x => x.dispose());
   textures.forEach(x => x.dispose());
 }
-
-function MaterialModel({ scene, color, metalness, roughness }) {
-  useEffect(() => {
-    scene.traverse(node => {
-      if (!node.isMesh) return;
-      (Array.isArray(node.material) ? node.material : [node.material]).forEach(mat => {
-        if (!mat?.isMeshStandardMaterial) return;
-        mat.color.set(color);
-        mat.metalness = metalness;
-        mat.roughness = roughness;
-        mat.needsUpdate = true;
-      });
+function collectMeshes(root) {
+  if (!root) return [];
+  const results = [];
+  root.traverse(node => {
+    if (!node.isMesh || !node.geometry) return;
+    const vertices = node.geometry.getAttribute('position')?.count || 0;
+    const elements = node.geometry.index?.count || vertices;
+    results.push({
+      id: node.uuid, name: node.name || ('Mesh ' + (results.length + 1)),
+      vertices, triangles: Math.floor(elements / 3),
     });
-  }, [scene, color, metalness, roughness]);
-  return <primitive object={scene}/>;
+  });
+  return results;
 }
-
-function FramedCamera({ scene, resetToken, autoRotate }) {
+function inspectorInfo(entry) {
+  if (!entry) return null;
+  const material = entry.mode === 'shader' ? entry.pbr || entry.original : firstMaterial(entry.mesh);
+  const textures = {};
+  TEXTURE_SLOTS.forEach(slot => {
+    const tex = material?.[slot];
+    textures[slot] = tex ? entry.textureNames.get(slot) || 'GLB texture' : '';
+  });
+  return {
+    mode: entry.mode, visible: entry.mesh.visible,
+    wireframe: Boolean(firstMaterial(entry.mesh)?.wireframe),
+    baseColor: material?.color?.getHexString ? '#' + material.color.getHexString() : '#ffffff',
+    emissive: material?.emissive?.getHexString ? '#' + material.emissive.getHexString() : '#000000',
+    metalness: Number(material?.metalness ?? 0),
+    roughness: Number(material?.roughness ?? 1),
+    textures,
+    slotCount: Array.isArray(entry.mesh.material) ? entry.mesh.material.length : 1,
+  };
+}
+function Camera({ scene, resetToken, autoRotate }) {
   const controls = useRef(null);
   const { camera } = useThree();
   const frame = useMemo(() => {
@@ -45,11 +71,9 @@ function FramedCamera({ scene, resetToken, autoRotate }) {
     const box = new Box3().setFromObject(scene);
     if (box.isEmpty()) return { center: new Vector3(), distance: 5.5 };
     const center = box.getCenter(new Vector3());
-    const size = box.getSize(new Vector3());
-    const radius = Math.max(size.length() / 2, 0.1);
+    const radius = Math.max(box.getSize(new Vector3()).length() / 2, 0.1);
     return { center, distance: Math.max(radius / Math.sin(camera.fov * Math.PI / 360) * 1.35, 1.5) };
   }, [scene, camera]);
-
   useEffect(() => {
     camera.position.copy(frame.center).addScaledVector(new Vector3(1, .7, 1).normalize(), frame.distance);
     camera.near = Math.max(0.01, frame.distance / 1000);
@@ -64,29 +88,9 @@ function FramedCamera({ scene, resetToken, autoRotate }) {
   }, [frame, resetToken, camera]);
   return <OrbitControls ref={controls} autoRotate={autoRotate} autoRotateSpeed={1.2} makeDefault/>;
 }
-
-function collectMeshes(root) {
-  if (!root) return [];
-  const items = [];
-  root.traverse(node => {
-    if (!node.isMesh || !node.geometry) return;
-    const geometry = node.geometry;
-    const vertices = geometry.getAttribute('position')?.count || 0;
-    const count = geometry.index?.count || vertices;
-    items.push({
-      id: node.uuid,
-      name: node.name || ('Mesh ' + (items.length + 1)),
-      vertices,
-      triangles: Math.floor(count / 3),
-    });
-  });
-  return items;
-}
-
-function SelectionHighlight({ root, selectedMeshId }) {
+function Highlight({ root, selectedMeshId }) {
   const { scene } = useThree();
   const helper = useRef(null);
-
   useEffect(() => {
     const target = root?.getObjectByProperty('uuid', selectedMeshId);
     if (!target?.isMesh) return;
@@ -102,14 +106,16 @@ function SelectionHighlight({ root, selectedMeshId }) {
       if (helper.current === box) helper.current = null;
     };
   }, [root, selectedMeshId, scene]);
-
-  useFrame(() => { helper.current?.update(); });
+  useFrame(() => helper.current?.update());
   return null;
 }
-
-function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetToken, onStatus, onMeshesChange, selectedMeshId, onSelectMesh }) {
+function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetToken,
+  onStatus, onMeshesChange, selectedMeshId, onSelectMesh, editCommand, onInspectorChange }) {
   const [model, setModel] = useState(null);
   const robotRef = useRef(null);
+  const registry = useRef(new Map());
+  const activeRoot = file ? model : robotRef.current;
+  const previousGlobal = useRef({ color, metalness, roughness });
 
   useEffect(() => {
     let cancelled = false;
@@ -118,51 +124,192 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     if (!file) return () => { cancelled = true; };
     (async () => {
       try {
-        const buffer = await file.arrayBuffer();
-        const gltf = await new GLTFLoader().parseAsync(buffer, '');
+        const gltf = await new GLTFLoader().parseAsync(await file.arrayBuffer(), '');
         loaded = gltf.scene;
-        if (cancelled) { disposeScene(loaded); return; }
-        loaded.traverse(node => {
-          if (!node.isMesh || !node.material) return;
-          node.material = Array.isArray(node.material)
-            ? node.material.map(mat => mat.clone()) : node.material.clone();
-        });
+        if (cancelled) { disposeModel(loaded); return; }
         setModel(loaded);
         onStatus('Đã mở ' + file.name + ' (' + (file.size / 1048576).toFixed(2) + ' MB).');
       } catch (error) {
         if (!cancelled) onStatus('Không thể mở GLB: ' + (error?.message || 'File không hợp lệ.'));
       }
     })();
-    return () => { cancelled = true; disposeScene(loaded); };
+    return () => { cancelled = true; disposeModel(loaded); };
   }, [file, onStatus]);
 
   useEffect(() => {
+    const current = new Map();
     const root = file ? model : robotRef.current;
+    root?.traverse(node => {
+      if (!node.isMesh) return;
+      current.set(node.uuid, {
+        mesh: node, original: firstMaterial(node),
+        pbr: null, shader: null, mode: 'pbr',
+        uploads: new Map(), textureNames: new Map(),
+        originalVisible: node.visible,
+      });
+    });
+    registry.current = current;
     onMeshesChange(collectMeshes(root));
-    return () => onMeshesChange([]);
-  }, [file, model, onMeshesChange]);
+    onInspectorChange(null);
+    return () => {
+      current.forEach(entry => {
+        entry.mesh.visible = entry.originalVisible;
+        setFirstMaterial(entry.mesh, entry.original);
+        entry.pbr?.dispose();
+        entry.shader?.dispose();
+        entry.uploads.forEach(texture => texture.dispose());
+      });
+      if (registry.current === current) registry.current = new Map();
+      onMeshesChange([]);
+      onInspectorChange(null);
+    };
+  }, [file, model, onMeshesChange, onInspectorChange]);
+
+  function workingPbr(entry) {
+    if (!entry.pbr) {
+      entry.pbr = entry.original.clone();
+    }
+    return entry.pbr;
+  }
+  function notify(entry) { onInspectorChange(inspectorInfo(entry)); }
+  useEffect(() => {
+    notify(registry.current.get(selectedMeshId));
+  }, [selectedMeshId, file, model, onInspectorChange]);
+
+  // Preserve v0.2's global controls without altering original GLB textures on initial load.
+  useEffect(() => {
+    const old = previousGlobal.current;
+    const changed = old.color !== color || old.metalness !== metalness || old.roughness !== roughness;
+    previousGlobal.current = { color, metalness, roughness };
+    if (!changed) return;
+    registry.current.forEach(entry => {
+      const material = entry.mode === 'shader' ? null : workingPbr(entry);
+      if (!material?.isMeshStandardMaterial) return;
+      material.color.set(color);
+      material.metalness = metalness;
+      material.roughness = roughness;
+      material.needsUpdate = true;
+      setFirstMaterial(entry.mesh, material);
+    });
+    notify(registry.current.get(selectedMeshId));
+  }, [color, metalness, roughness, selectedMeshId]);
+
+  useEffect(() => {
+    if (!editCommand) return;
+    const entry = registry.current.get(editCommand.meshId);
+    if (!entry) return;
+    const { type, property, value, slot } = editCommand;
+    if (type === 'reset') {
+      entry.shader?.dispose(); entry.shader = null;
+      entry.pbr?.dispose(); entry.pbr = null;
+      entry.uploads.forEach(texture => texture.dispose());
+      entry.uploads.clear(); entry.textureNames.clear();
+      entry.mode = 'pbr';
+      entry.mesh.visible = entry.originalVisible;
+      setFirstMaterial(entry.mesh, entry.original);
+    } else if (type === 'visible') {
+      entry.mesh.visible = value;
+    } else if (type === 'shader') {
+      entry.shader?.dispose();
+      const pbr = entry.pbr || entry.original;
+      const texture = pbr?.map || null;
+      const shader = new RawShaderMaterial({
+        vertexShader: editCommand.vertex, fragmentShader: editCommand.fragment,
+        uniforms: {
+          projectionMatrix: { value: null },
+          modelViewMatrix: { value: null },
+          uTime: { value: 0 },
+          uColor: { value: pbr?.color?.clone() || new Color('#ffffff') },
+          uTexture: { value: texture },
+          uUseTexture: { value: texture ? 1 : 0 },
+        },
+      });
+      entry.shader = shader;
+      entry.mode = 'shader';
+      setFirstMaterial(entry.mesh, shader);
+    } else if (type === 'pbr') {
+      entry.mode = 'pbr';
+      setFirstMaterial(entry.mesh, entry.pbr || entry.original);
+    } else if (type === 'property' || type === 'wireframe') {
+      const mat = workingPbr(entry);
+      if (type === 'wireframe') mat.wireframe = value;
+      else if (property === 'color' || property === 'emissive') {
+        if (mat[property]?.isColor) mat[property].set(value);
+      } else if (property === 'metalness' || property === 'roughness') {
+        if (property in mat) mat[property] = value;
+      }
+      mat.needsUpdate = true;
+      if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+      if (type === 'wireframe' && entry.shader) entry.shader.wireframe = value;
+    } else if (type === 'removeTexture' && TEXTURE_SLOTS.includes(slot)) {
+      const mat = workingPbr(entry);
+      const oldUpload = entry.uploads.get(slot);
+      mat[slot] = null;
+      if (oldUpload) oldUpload.dispose();
+      entry.uploads.delete(slot); entry.textureNames.delete(slot);
+      mat.needsUpdate = true;
+      if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+      if (slot === 'map' && entry.shader) {
+        entry.shader.uniforms.uTexture.value = null;
+        entry.shader.uniforms.uUseTexture.value = 0;
+      }
+    } else if (type === 'texture' && TEXTURE_SLOTS.includes(slot)) {
+      const { file: imageFile } = editCommand;
+      const objectUrl = URL.createObjectURL(imageFile);
+      const mat = workingPbr(entry);
+      new TextureLoader().load(objectUrl, texture => {
+        URL.revokeObjectURL(objectUrl);
+        if (registry.current.get(editCommand.meshId) !== entry) { texture.dispose(); return; }
+        texture.colorSpace = COLOR_SLOTS.has(slot) ? SRGBColorSpace : '';
+        texture.flipY = false; // GLB UV convention
+        const oldUpload = entry.uploads.get(slot);
+        if (oldUpload) oldUpload.dispose();
+        entry.uploads.set(slot, texture);
+        entry.textureNames.set(slot, imageFile.name);
+        mat[slot] = texture;
+        mat.needsUpdate = true;
+        if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+        if (slot === 'map' && entry.shader) {
+          entry.shader.uniforms.uTexture.value = texture;
+          entry.shader.uniforms.uUseTexture.value = 1;
+        }
+        notify(entry);
+        onStatus('Texture applied: ' + imageFile.name + ' → ' + slot);
+      }, undefined, () => {
+        URL.revokeObjectURL(objectUrl);
+        onStatus('Không thể mở texture: ' + imageFile.name);
+      });
+    }
+    notify(entry);
+  }, [editCommand, onInspectorChange, onStatus]);
+
+  useFrame(state => {
+    registry.current.forEach(entry => {
+      if (entry.shader) entry.shader.uniforms.uTime.value = state.clock.elapsedTime;
+    });
+  });
 
   function selectFromPointer(event) {
     if (!event.object?.isMesh) return;
     event.stopPropagation();
     onSelectMesh(event.object.uuid);
   }
-
   return <>
     <color attach="background" args={['#111c2b']}/>
     <ambientLight intensity={1.3}/><directionalLight position={[4,6,5]} intensity={2}/>
-    {file ? model && <group onPointerDown={selectFromPointer}><MaterialModel scene={model} color={color} metalness={metalness} roughness={roughness}/></group> :
-      <group ref={robotRef} onPointerDown={selectFromPointer}><SampleRobot color={color} metalness={metalness} roughness={roughness}/></group>}
+    {file ? model && <group onPointerDown={selectFromPointer}><primitive object={model}/></group> :
+      <group ref={robotRef} onPointerDown={selectFromPointer}><SampleRobot color="#58b8ff" metalness={0.35} roughness={0.42}/></group>}
     {!file && <ContactShadows position={[0,-1.3,0]} scale={5} opacity={0.35} blur={2} far={3}/>}
     {showGrid && <gridHelper args={[20,20,'#4a7392','#263b52']} position={[0,-1.32,0]}/>}
-    <FramedCamera scene={file ? model : null} resetToken={resetToken} autoRotate={autoRotate}/>
-    <SelectionHighlight root={file ? model : robotRef.current} selectedMeshId={selectedMeshId}/>
+    <Camera scene={file ? model : null} resetToken={resetToken} autoRotate={autoRotate}/>
+    <Highlight root={activeRoot} selectedMeshId={selectedMeshId}/>
   </>;
 }
 
 export default function ModelViewer(props) {
   return <div className="canvas">
-    <Canvas camera={{ position: [3.5,2.5,5], fov:42 }} dpr={[1,1.75]} onPointerMissed={() => props.onSelectMesh(null)}>
+    <Canvas camera={{ position:[3.5,2.5,5], fov:42 }} dpr={[1,1.75]}
+      onPointerMissed={() => props.onSelectMesh(null)}>
       <Suspense fallback={null}><Scene {...props}/></Suspense>
     </Canvas>
   </div>;
