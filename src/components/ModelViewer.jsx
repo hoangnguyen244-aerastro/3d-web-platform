@@ -2,7 +2,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Box3, BoxHelper, Color, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
+import { Box3, BoxHelper, Color, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
@@ -216,8 +216,6 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       const shader = new RawShaderMaterial({
         vertexShader: editCommand.vertex, fragmentShader: editCommand.fragment,
         uniforms: {
-          projectionMatrix: { value: null },
-          modelViewMatrix: { value: null },
           uTime: { value: 0 },
           uColor: { value: pbr?.color?.clone() || new Color('#ffffff') },
           uTexture: { value: texture },
@@ -260,7 +258,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       new TextureLoader().load(objectUrl, texture => {
         URL.revokeObjectURL(objectUrl);
         if (registry.current.get(editCommand.meshId) !== entry) { texture.dispose(); return; }
-        texture.colorSpace = COLOR_SLOTS.has(slot) ? SRGBColorSpace : '';
+        texture.colorSpace = COLOR_SLOTS.has(slot) ? SRGBColorSpace : NoColorSpace;
         texture.flipY = false; // GLB UV convention
         const oldUpload = entry.uploads.get(slot);
         if (oldUpload) oldUpload.dispose();
