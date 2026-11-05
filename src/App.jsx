@@ -4,7 +4,7 @@ import './v02.css';
 import './v031.css';
 import './v032.css';
 
-const DEFAULT_VERTEX = \`precision highp float;
+const DEFAULT_VERTEX = `precision highp float;
 attribute vec3 position;
 attribute vec2 uv;
 uniform mat4 projectionMatrix;
@@ -13,8 +13,8 @@ varying vec2 vUv;
 void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}\`;
-const DEFAULT_FRAGMENT = \`precision highp float;
+}`;
+const DEFAULT_FRAGMENT = `precision highp float;
 uniform float uTime;
 uniform vec3 uColor;
 uniform sampler2D uTexture;
@@ -25,7 +25,7 @@ void main() {
   if (uUseTexture > 0.5) base *= texture2D(uTexture, vUv).rgb;
   float pulse = 0.76 + 0.24 * sin(uTime * 2.0);
   gl_FragColor = vec4(base * pulse, 1.0);
-}\`;
+}`;
 
 const MAPS = [
   ['map', 'Albedo / Base Map', 'sRGB'],
