@@ -7,7 +7,7 @@ import SampleRobot from './SampleRobot.jsx';
 import { advanceShaderTime } from '../utils/shaderClock.js';
 import { createEditablePbr } from '../utils/editablePbr.js';
 import { materialAt, materialSlotCount, setMaterialAt, slotKey, materialsOf, materialSlotNames } from '../utils/materialSlots.js';
-import { createOutlineOverlay, disposeOutlineOverlay } from '../utils/outlineOverlay.js';
+import { createOutlineOverlay, disposeOutlineOverlay, updateOutlineThickness } from '../utils/outlineOverlay.js';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
 const COLOR_SLOTS = new Set(['map', 'emissiveMap']);
@@ -286,11 +286,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       const width = Number(editCommand.value);
       if (entry.mode === 'shader' && entry.outline && Number.isFinite(width)) {
         const thickness = Math.max(0.005, Math.min(0.1, width));
-        entry.mesh.geometry.computeBoundingSphere();
-        const radius = Math.max(entry.mesh.geometry.boundingSphere?.radius || 1, 0.001);
-        const material = materialAt(entry.outline, entry.slotIndex);
-        if (material?.uniforms?.uOutlineWidth) {
-          material.uniforms.uOutlineWidth.value = radius * thickness;
+        if (updateOutlineThickness(entry.outline, entry.mesh.geometry, entry.slotIndex, thickness)) {
           entry.shaderSettings = { ...entry.shaderSettings, outlineSize: thickness };
         }
       }
