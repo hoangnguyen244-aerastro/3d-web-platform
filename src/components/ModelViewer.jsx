@@ -4,6 +4,7 @@ import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { BackSide, Box3, BoxHelper, Color, Mesh, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
+import { advanceShaderTime } from '../utils/shaderClock.js';
 import { ANIME_OUTLINE_VERTEX, ANIME_OUTLINE_FRAGMENT } from '../shaders/animeToon.js';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
@@ -370,9 +371,12 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     notify(entry);
   }, [editCommand, onInspectorChange, onStatus]);
 
-  useFrame(state => {
+  useFrame((_state, delta) => {
     registry.current.forEach(entry => {
-      if (entry.shader) entry.shader.uniforms.uTime.value = state.clock.elapsedTime * entry.uniformSettings.speed;
+      if (entry.mode === 'shader' && entry.shader) {
+        const time = entry.shader.uniforms.uTime;
+        time.value = advanceShaderTime(time.value, delta, entry.uniformSettings.speed);
+      }
     });
   });
 
