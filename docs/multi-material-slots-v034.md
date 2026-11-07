@@ -55,3 +55,20 @@ Imported OBJ/FBX materials often use `MeshPhongMaterial` or `MeshBasicMaterial`,
 5. Repeat on Sample Robot Head and on any known FBX material. Reset and change model files; verify there are no stuck outlines or GPU crashes.
 
 GitHub Actions tests/build verify static shader state, PBR conversion and detached scene-graph behavior. **Actual GPU rendering still requires Windows browser acceptance.** Do not merge until shader and Roughness tests pass.
+
+## Final UX fixes — November 2026
+
+### Live Anime Toon outline thickness
+With a compiled and active Anime Toon shader **and Ink outline enabled**, moving **Outline Thickness** now updates `uOutlineWidth` on the existing outline material in real time without clicking Compile & Apply again. The preview still needs **Compile & Apply** if the outline itself is initially enabled or disabled.
+
+### Imported material names
+The Material dropdown displays material names from the source asset (e.g. `LeftRegion`, `RightRegion` from OBJ `usemtl`, or material names from GLB/FBX) with the slot number suffix. Only materials without a name use the fallback `Material N`. Names are captured during import/registration, so applying shaders or presets does not overwrite the original labels.
+
+### Final browser checks before approving release
+1. Load `demo-two-material-slots.obj`, select `TwoMaterialPanel`; dropdown must show `LeftRegion · 1/2` and `RightRegion · 2/2`.
+2. Load an external named GLB/FBX and confirm material names match the source wherever supplied by the loader.
+3. Apply Anime Toon with Ink outline on slot 1. Drag Thickness from `0.005` to `0.1` while observing the viewer. The outline should respond **without another Apply**.
+4. Switch to slot 2, apply a separate shader and change thickness. Slot 1's outline width and material should stay unchanged.
+5. Check Return to PBR, Reset and imported file switching, ensuring no browser crash.
+
+**Release gate:** GitHub Actions covers structural behavior and production compilation; the real-time WebGL behavior and imported material labels should also be confirmed manually in Windows before merging this PR.
