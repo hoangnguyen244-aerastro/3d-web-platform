@@ -6,7 +6,7 @@ import { Box3, BoxHelper, Color, NoColorSpace, RawShaderMaterial, SRGBColorSpace
 import SampleRobot from './SampleRobot.jsx';
 import { advanceShaderTime } from '../utils/shaderClock.js';
 import { createEditablePbr } from '../utils/editablePbr.js';
-import { materialAt, materialSlotCount, setMaterialAt, slotKey, materialsOf } from '../utils/materialSlots.js';
+import { materialAt, materialSlotCount, setMaterialAt, slotKey, materialsOf, materialSlotNames } from '../utils/materialSlots.js';
 import { createOutlineOverlay, disposeOutlineOverlay } from '../utils/outlineOverlay.js';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
@@ -37,6 +37,7 @@ function collectMeshes(root) {
     results.push({
       id: node.uuid, name: node.name || ('Mesh ' + (results.length + 1)),
       vertices, triangles: Math.floor(elements / 3), slotCount: materialSlotCount(node),
+      materialNames: materialSlotNames(node),
     });
   });
   return results;
@@ -58,6 +59,7 @@ function inspectorInfo(entry) {
     roughness: Number(material?.roughness ?? 1),
     textures,
     slotCount: materialSlotCount(entry.mesh), slotIndex: entry.slotIndex,
+    materialName: entry.materialName,
     uniforms: entry.uniformSettings || { color: '#ffffff', speed: 1, intensity: 1 },
     shader: entry.mode === 'shader' ? entry.shaderSettings : null,
   };
@@ -152,6 +154,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       materialsOf(node).forEach((material, slotIndex) => {
         current.set(slotKey(node.uuid, slotIndex), {
           mesh: node, slotIndex, original: material,
+          materialName: materialSlotNames(node)[slotIndex],
           pbr: null, shader: null, outline: null, mode: 'pbr',
           shaderSettings: null,
           uniformSettings: { color: material?.color?.getHexString ? '#' + material.color.getHexString() : '#ffffff', speed: 1, intensity: 1 },
@@ -212,6 +215,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     const texture = pbr?.map || null;
     const settings = entry.uniformSettings;
     const shader = new RawShaderMaterial({
+      name: entry.materialName,
       vertexShader: options.vertex, fragmentShader: options.fragment,
       uniforms: {
         uTime: { value: 0 },
@@ -278,6 +282,18 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       entry.mesh.visible = value;
     } else if (type === 'shader') {
       applyShaderToEntry(entry, editCommand);
+    } else if (type === 'outlineThickness') {
+      const width = Number(editCommand.value);
+      if (entry.mode === 'shader' && entry.outline && Number.isFinite(width)) {
+        const thickness = Math.max(0.005, Math.min(0.1, width));
+        entry.mesh.geometry.computeBoundingSphere();
+        const radius = Math.max(entry.mesh.geometry.boundingSphere?.radius || 1, 0.001);
+        const material = materialAt(entry.outline, entry.slotIndex);
+        if (material?.uniforms?.uOutlineWidth) {
+          material.uniforms.uOutlineWidth.value = radius * thickness;
+          entry.shaderSettings = { ...entry.shaderSettings, outlineSize: thickness };
+        }
+      }
     } else if (type === 'uniform') {
       const u = entry.uniformSettings;
       if (property === 'color' && /^#[0-9a-fA-F]{6}$/.test(value)) u.color = value;
