@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import ModelViewer from './components/ModelViewer.jsx';
+import { makeMaterialPreset, parseMaterialPreset } from './utils/materialPreset.js';
 import { ANIME_TOON_VERTEX, ANIME_TOON_FRAGMENT } from './shaders/animeToon.js';
 import './v02.css';
 import './v031.css';
@@ -18,6 +19,7 @@ void main() {
 }`;
 const DEFAULT_FRAGMENT = `precision highp float;
 uniform float uTime;
+uniform float uIntensity;
 uniform vec3 uColor;
 uniform sampler2D uTexture;
 uniform float uUseTexture;
@@ -26,7 +28,7 @@ void main() {
   vec3 base = uColor;
   if (uUseTexture > 0.5) base *= texture2D(uTexture, vUv).rgb;
   float pulse = 0.76 + 0.24 * sin(uTime * 2.0);
-  gl_FragColor = vec4(base * pulse, 1.0);
+  gl_FragColor = vec4(base * pulse * uIntensity, 1.0);
 }`;
 
 const MAPS = [
@@ -84,6 +86,8 @@ export default function App() {
   const [outlineSize, setOutlineSize] = useState(0.025);
   const [edit, setEdit] = useState(null);
   const input = useRef(null);
+  const presetInput = useRef(null);
+  const [presetMessage, setPresetMessage] = useState('');
   const idCounter = useRef(0);
   const chosen = meshes.find(mesh => mesh.id === selectedMeshId);
 
@@ -95,6 +99,7 @@ export default function App() {
     setSelectedMeshId(id);
     setInspector(null);
     setShaderMessage('');
+    setPresetMessage('');
   }
   function chooseFile(event) {
     const selected = event.target.files?.[0];
@@ -156,8 +161,49 @@ export default function App() {
     command('shader', { vertex, fragment, outlineEnabled, outlineSize });
     setShaderMessage(outlineEnabled ? 'GLSL compiled. Anime ink outline enabled for supported meshes.' : 'Shaders compiled and linked successfully. Applied to selected mesh.');
   }
+  function savePreset() {
+    if (!chosen || !inspector) return;
+    try {
+      const preset = makeMaterialPreset(inspector);
+      const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = (chosen.name.replace(/[^a-z0-9_-]/gi, '_').slice(0, 45) || 'material') + '.material.json';
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setPresetMessage('Preset downloaded. Texture image bytes are not included.');
+    } catch (error) { setPresetMessage(error.message); }
+  }
+  async function loadPreset(event) {
+    const selected = event.target.files?.[0];
+    event.target.value = '';
+    if (!selected || !chosen) return;
+    if (selected.size > 180 * 1024) {
+      setPresetMessage('Preset file is too large (max 180 KB).'); return;
+    }
+    const intendedMesh = selectedMeshId;
+    try {
+      const preset = parseMaterialPreset(JSON.parse(await selected.text()));
+      if (preset.mode === 'shader') {
+        const error = verifyGLSL(preset.shader.vertex, preset.shader.fragment);
+        if (error) throw new Error(error);
+      }
+      if (intendedMesh !== selectedMeshId) {
+        setPresetMessage('Mesh selection changed. Select the target again before importing.'); return;
+      }
+      if (preset.shader) {
+        setVertex(preset.shader.vertex);
+        setFragment(preset.shader.fragment);
+        setOutlineEnabled(preset.shader.outlineEnabled);
+        setOutlineSize(preset.shader.outlineSize);
+      }
+      command('preset', { preset });
+      setPresetMessage('Material preset applied to selected mesh. Existing texture slots are retained.');
+    } catch (error) { setPresetMessage('Cannot import preset: ' + error.message); }
+  }
   return <div className="app">
-    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.2 · feature preview</span></header>
+    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.3 · feature preview</span></header>
     <section className="intro"><p className="eyebrow">YOUR 3D WORKSPACE</p><h1>Explore. Configure. Compare.</h1><p>Model viewer · Unity-style material inspector · WebGL GLSL lab</p></section>
     <nav aria-label="Modules">
       <button className={tab === 'viewer' ? 'active' : ''} onClick={() => setTab('viewer')}>◈ Model Viewer</button>
@@ -203,7 +249,7 @@ export default function App() {
             <div className="unity-component">
               <div className="unity-component-heading">▾ Mesh Renderer <small>Material {inspector?.slotCount > 1 ? '1 / ' + inspector.slotCount : ''}</small></div>
               <div className="unity-row"><label>Shader</label><strong>{inspector?.mode === 'shader' ? 'Custom WebGL GLSL' : 'Standard PBR'}</strong></div>
-              {inspector?.slotCount > 1 && <p className="unity-tip">This preview edits material slot 1 only.</p>}
+              {inspector?.slotCount > 1 && <p className="unity-tip">This preview edits material slot 1 only; multiple material slot editing is planned next.</p>}
               <div className="unity-row"><label>Visible</label><input type="checkbox" checked={inspector?.visible ?? true} onChange={e => command('visible', { value: e.target.checked })}/></div>
               <div className="unity-row"><label>Wireframe</label><input type="checkbox" checked={inspector?.wireframe ?? false} onChange={e => command('wireframe', { value: e.target.checked })}/></div>
             </div>
@@ -227,6 +273,16 @@ export default function App() {
               <p className="unity-tip">Metallic uses blue (B), Roughness green (G) in glTF PBR. UV mapping required.</p>
             </div>
             <div className="unity-component">
+              <div className="unity-component-heading">▾ Material Presets <small>v0.3.3</small></div>
+              <p className="unity-tip">Save this mesh's current PBR properties, GLSL source, outline and shader uniform values in a portable .json file. Uploaded image pixels are not embedded.</p>
+              <div className="unity-action-row">
+                <button type="button" onClick={savePreset} disabled={!inspector}>↓ Save Preset</button>
+                <button type="button" onClick={() => presetInput.current?.click()}>↑ Load Preset</button>
+                <input ref={presetInput} type="file" hidden accept=".json,application/json" onChange={loadPreset}/>
+              </div>
+              {presetMessage && <p className="unity-compiler-log" role="status">{presetMessage}</p>}
+            </div>
+            <div className="unity-component">
               <div className="unity-component-heading">▾ Custom Shader · GLSL <small>WebGL</small></div>
               <p className="unity-tip">Standalone GLSL ES 1.00 vertex + fragment sources. RawShaderMaterial, not Unity ShaderLab/HLSL or JavaScript.</p>
               <div className="anime-demo-box">
@@ -237,6 +293,18 @@ export default function App() {
               <label className="unity-check">Ink outline (static meshes) <input type="checkbox" checked={outlineEnabled} onChange={e=>setOutlineEnabled(e.target.checked)}/></label>
               <div className="unity-slider-row"><label>Outline Thickness <span>{outlineSize.toFixed(3)}</span></label><input type="range" min="0.005" max="0.1" step="0.005" value={outlineSize} disabled={!outlineEnabled} onChange={e=>setOutlineSize(Number(e.target.value))}/></div>
               <p className="unity-tip">Outline thickness is relative to mesh bounds. Changes take effect after Compile & Apply. Skinned meshes are excluded in this preview.</p>
+              <div className="unity-uniform-panel">
+                <strong>Shader Uniforms · Live</strong>
+                <div className="unity-row"><label htmlFor="shader-uniform-color">uColor</label>
+                  <input id="shader-uniform-color" type="color" value={inspector?.uniforms?.color || '#ffffff'} onChange={e => command('uniform', {property:'color',value:e.target.value})}/>
+                </div>
+                {['speed','intensity'].map(property => <div className="unity-slider-row" key={property}>
+                  <label htmlFor={'uniform-'+property}>{property === 'speed' ? 'uTime Speed' : 'uIntensity'} <span>{Number(inspector?.uniforms?.[property] ?? 1).toFixed(2)}</span></label>
+                  <input id={'uniform-'+property} type="range" min="0" max={property === 'speed' ? '5' : '2'} step="0.05"
+                    value={inspector?.uniforms?.[property] ?? 1} onChange={e => command('uniform', { property, value:Number(e.target.value) })}/>
+                </div>)}
+                <p className="unity-tip">uColor and uIntensity update without recompiling. uTime Speed changes elapsed-time animation. Custom GLSL must declare each uniform to use it.</p>
+              </div>
               <label className="unity-code-label">Vertex Shader <span>.vert / .glsl</span></label>
               <textarea className="unity-code" rows={8} spellCheck={false} value={vertex} onChange={e => setVertex(e.target.value)}/>
               <label className="unity-upload unity-upload-inline">↑ Upload Vertex GLSL<input type="file" accept=".vert,.vs,.glsl,.txt" onChange={e => shaderFile(e, 'vertex')}/></label>
@@ -268,6 +336,6 @@ export default function App() {
         </section>
       </aside>
     </div> : <section className="panel benchmark"><h2>Compression Benchmark</h2><p>Original vs compressed model comparison is planned. No compression engine is implemented yet.</p></section>}
-    <footer>React + Three.js + React Three Fiber · Material Inspector v0.3.2</footer>
+    <footer>React + Three.js + React Three Fiber · Material Presets & Uniforms v0.3.3</footer>
   </div>;
 }
