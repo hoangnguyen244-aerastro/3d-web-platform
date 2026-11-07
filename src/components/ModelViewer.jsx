@@ -6,6 +6,7 @@ import { Box3, BoxHelper, Color, NoColorSpace, RawShaderMaterial, SRGBColorSpace
 import SampleRobot from './SampleRobot.jsx';
 import { advanceShaderTime } from '../utils/shaderClock.js';
 import { createEditablePbr } from '../utils/editablePbr.js';
+import { materialSlotFromHit } from '../utils/materialPicking.js';
 import { materialAt, materialSlotCount, setMaterialAt, slotKey, materialsOf, materialSlotNames } from '../utils/materialSlots.js';
 import { createOutlineOverlay, disposeOutlineOverlay, updateOutlineThickness } from '../utils/outlineOverlay.js';
 
@@ -393,7 +394,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
   function selectFromPointer(event) {
     if (!event.object?.isMesh) return;
     event.stopPropagation();
-    onSelectMesh(event.object.uuid);
+    onSelectMesh(event.object.uuid, materialSlotFromHit(event.object, event));
   }
   return <>
     <color attach="background" args={['#111c2b']}/>
