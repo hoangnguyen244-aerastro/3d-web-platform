@@ -277,14 +277,14 @@ export default function App() {
               <span>{chosen.vertices.toLocaleString()} vertices · {chosen.triangles.toLocaleString()} triangles</span>
             </div>
             <div className="unity-component">
-              <div className="unity-component-heading">▾ Mesh Renderer <small>Material {selectedMaterialSlot + 1} / {chosen.slotCount}</small></div>
+              <div className="unity-component-heading">▾ Mesh Renderer <small>{chosen.materialNames?.[selectedMaterialSlot] || 'Material ' + (selectedMaterialSlot + 1)} · {selectedMaterialSlot + 1}/{chosen.slotCount}</small></div>
               <div className="unity-row"><label>Shader</label><strong>{inspector?.mode === 'shader' ? 'Custom WebGL GLSL' : 'Standard PBR'}</strong></div>
               <div className="unity-material-slots">
                 <label htmlFor="selected-material-slot">Active material slot</label>
                 <select id="selected-material-slot" value={selectedMaterialSlot}
                   onChange={e => selectMaterialSlot(Number(e.target.value))}>
                   {Array.from({ length: chosen.slotCount }, (_, index) =>
-                    <option key={index} value={index}>Material {index + 1} / {chosen.slotCount}</option>)}
+                    <option key={index} value={index}>{chosen.materialNames?.[index] || 'Material ' + (index + 1)} · {index + 1}/{chosen.slotCount}</option>)}
                 </select>
                 <p className="unity-tip">PBR color, textures, shader, presets and Reset affect only this slot. Visibility is a mesh-wide setting.</p>
               </div>
@@ -329,8 +329,8 @@ export default function App() {
                 <button type="button" className="anime-demo-button" onClick={loadAnimeDemo}>Load Anime Toon Demo</button>
               </div>
               <label className="unity-check">Ink outline (static meshes) <input type="checkbox" checked={outlineEnabled} onChange={e=>setOutlineEnabled(e.target.checked)}/></label>
-              <div className="unity-slider-row"><label>Outline Thickness <span>{outlineSize.toFixed(3)}</span></label><input type="range" min="0.005" max="0.1" step="0.005" value={outlineSize} disabled={!outlineEnabled} onChange={e=>setOutlineSize(Number(e.target.value))}/></div>
-              <p className="unity-tip">Outline thickness is relative to mesh bounds. Changes take effect after Compile & Apply. Skinned meshes are excluded in this preview.</p>
+              <div className="unity-slider-row"><label>Outline Thickness <span>{outlineSize.toFixed(3)}</span></label><input type="range" min="0.005" max="0.1" step="0.005" value={outlineSize} disabled={!outlineEnabled} onChange={e=>{ const size = Number(e.target.value); setOutlineSize(size); if (inspector?.mode === 'shader' && inspector?.shader?.outlineEnabled) command('outlineThickness', { value: size }); }}/></div>
+              <p className="unity-tip">Outline thickness updates live when a shader outline is active. Enabling or disabling the outline still requires Compile & Apply. Skinned meshes are excluded.</p>
               <div className="unity-uniform-panel">
                 <strong>Shader Uniforms · Live</strong>
                 <div className="unity-row"><label htmlFor="shader-uniform-color">uColor</label>
