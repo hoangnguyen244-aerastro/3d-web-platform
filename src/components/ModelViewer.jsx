@@ -114,6 +114,8 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
   const registeredScenes = useRef(new WeakSet());
   const robotRef = useRef(null);
   const registry = useRef(new Map());
+  const selectedSlotRef = useRef(null);
+  selectedSlotRef.current = slotKey(selectedMeshId, selectedMaterialSlot);
   const activeRoot = file ? model : robotRef.current;
   const previousGlobal = useRef({ color, metalness, roughness });
 
@@ -246,7 +248,11 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     setMaterialAt(entry.mesh, entry.slotIndex, shader);
     if (options.outlineEnabled) createOutline(entry, options.outlineSize || 0.025);
   }
-  function notify(entry) { onInspectorChange(inspectorInfo(entry)); }
+  function notify(entry) {
+    if (!entry || slotKey(entry.mesh.uuid, entry.slotIndex) === selectedSlotRef.current) {
+      onInspectorChange(inspectorInfo(entry));
+    }
+  }
   useEffect(() => {
     notify(registry.current.get(slotKey(selectedMeshId, selectedMaterialSlot)));
   }, [selectedMeshId, selectedMaterialSlot, file, model, onInspectorChange]);
