@@ -49,7 +49,7 @@ function inspectorInfo(entry) {
   const textures = {};
   TEXTURE_SLOTS.forEach(slot => {
     const tex = material?.[slot];
-    textures[slot] = tex ? entry.textureNames.get(slot) || 'GLB texture' : '';
+    textures[slot] = tex ? entry.textureNames.get(slot) || tex.name || 'Embedded / imported texture' : '';
   });
   return {
     mode: entry.mode, visible: entry.mesh.visible,
