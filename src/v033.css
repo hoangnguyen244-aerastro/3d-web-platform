@@ -1,0 +1,5 @@
+/* v0.3.3: shader uniforms and portable preset controls */
+.unity-uniform-panel{background:#222d3c;border:1px solid #486581;border-radius:5px;padding:12px;margin:12px 0 16px}
+.unity-uniform-panel>strong{display:block;font-size:12px;color:#b8dcfc;margin-bottom:8px}
+.unity-uniform-panel .unity-slider-row{padding:5px 0}
+.unity-action-row button:disabled{opacity:.5;cursor:not-allowed}
