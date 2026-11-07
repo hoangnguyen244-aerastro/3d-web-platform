@@ -110,6 +110,7 @@ function Highlight({ root, selectedMeshId }) {
 function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetToken,
   onStatus, onMeshesChange, selectedMeshId, selectedMaterialSlot, onSelectMesh, editCommand, onInspectorChange }) {
   const [loadedModel, setLoadedModel] = useState(null);
+  const { scene: overlayScene } = useThree();
   const model = loadedModel?.file === file ? loadedModel.scene : null;
   const registeredScenes = useRef(new WeakSet());
   const robotRef = useRef(null);
@@ -183,13 +184,37 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
 
   function workingPbr(entry) {
     if (!entry.pbr) {
-      entry.pbr = entry.original.clone();
+      const source = entry.original;
+      if (source?.isMeshStandardMaterial || source?.isMeshPhysicalMaterial) {
+        entry.pbr = source.clone();
+      } else {
+        // OBJ/FBX often import MeshPhongMaterial or MeshBasicMaterial; these do not
+        // expose metalness/roughness. Normalize only the edited slot to Standard PBR.
+        entry.pbr = new MeshStandardMaterial({
+          name: source?.name || 'Imported PBR',
+          color: source?.color?.clone() || new Color('#ffffff'),
+          emissive: source?.emissive?.clone() || new Color('#000000'),
+          metalness: 0,
+          roughness: typeof source?.shininess === 'number'
+            ? Math.max(0.05, Math.min(1, 1 - source.shininess / 120)) : 0.7,
+          map: source?.map || null,
+          normalMap: source?.normalMap || null,
+          metalnessMap: source?.metalnessMap || null,
+          roughnessMap: source?.roughnessMap || null,
+          emissiveMap: source?.emissiveMap || null,
+          transparent: Boolean(source?.transparent),
+          opacity: source?.opacity ?? 1,
+          side: source?.side,
+          wireframe: Boolean(source?.wireframe),
+          vertexColors: Boolean(source?.vertexColors),
+        });
+      }
     }
     return entry.pbr;
   }
   function clearOutline(entry) {
     if (!entry.outline) return;
-    entry.mesh.remove(entry.outline);
+    overlayScene.remove(entry.outline);
     materialsOf(entry.outline).forEach(material => material.dispose());
     // Geometry is shared with the original mesh: never dispose it here.
     entry.outline = null;
@@ -220,7 +245,13 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     outline.raycast = () => {};
     outline.frustumCulled = mesh.frustumCulled;
     outline.renderOrder = -1;
-    mesh.add(outline);
+    // Keep the outline outside the source mesh and R3F-managed model hierarchy.
+    // A nested duplicate can affect picking, bounds and scene reconciliation.
+    mesh.updateWorldMatrix(true, false);
+    outline.matrixAutoUpdate = false;
+    outline.matrix.copy(mesh.matrixWorld);
+    outline.frustumCulled = false;
+    overlayScene.add(outline);
     entry.outline = outline;
   }
   function applyShaderToEntry(entry, options) {
@@ -384,6 +415,11 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
 
   useFrame((_state, delta) => {
     registry.current.forEach(entry => {
+      if (entry.outline) {
+        entry.mesh.updateWorldMatrix(true, false);
+        entry.outline.matrix.copy(entry.mesh.matrixWorld);
+        entry.outline.matrixWorldNeedsUpdate = true;
+      }
       if (entry.mode === 'shader' && entry.shader) {
         const time = entry.shader.uniforms.uTime;
         time.value = advanceShaderTime(time.value, delta, entry.uniformSettings.speed);
