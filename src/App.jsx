@@ -90,6 +90,8 @@ export default function App() {
   const presetInput = useRef(null);
   const [presetMessage, setPresetMessage] = useState('');
   const idCounter = useRef(0);
+  const selectionRef = useRef(null);
+  selectionRef.current = selectedMeshId;
   const chosen = meshes.find(mesh => mesh.id === selectedMeshId);
 
   function command(type, extra = {}) {
@@ -190,7 +192,7 @@ export default function App() {
         const error = verifyGLSL(preset.shader.vertex, preset.shader.fragment);
         if (error) throw new Error(error);
       }
-      if (intendedMesh !== selectedMeshId) {
+      if (intendedMesh !== selectionRef.current) {
         setPresetMessage('Mesh selection changed. Select the target again before importing.'); return;
       }
       if (preset.shader) {
