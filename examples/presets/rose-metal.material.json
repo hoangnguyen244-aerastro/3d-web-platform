@@ -1,0 +1,19 @@
+{
+  "format": "3d-web-platform-material-preset",
+  "version": 1,
+  "mode": "pbr",
+  "pbr": {
+    "baseColor": "#ff5577",
+    "emissive": "#13000a",
+    "metalness": 0.35,
+    "roughness": 0.45,
+    "wireframe": false
+  },
+  "visible": true,
+  "shader": null,
+  "uniforms": {
+    "color": "#ff5577",
+    "speed": 1,
+    "intensity": 1
+  }
+}
