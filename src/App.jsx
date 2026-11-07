@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import ModelViewer from './components/ModelViewer.jsx';
+import { IMPORT_ACCEPT, IMPORT_FORMATS, validateModelFile } from './loaders/modelImporter.js';
 import { makeMaterialPreset, parseMaterialPreset } from './utils/materialPreset.js';
 import { ANIME_TOON_VERTEX, ANIME_TOON_FRAGMENT } from './shaders/animeToon.js';
 import './v02.css';
@@ -108,12 +109,8 @@ export default function App() {
     const selected = event.target.files?.[0];
     event.target.value = '';
     if (!selected) return;
-    if (!selected.name.toLowerCase().endsWith('.glb')) {
-      setStatus('Chỉ hỗ trợ .glb tự chứa ở phiên bản này.'); return;
-    }
-    if (selected.size > 50 * 1024 * 1024) {
-      setStatus('File lớn hơn 50 MB. Hãy tối ưu trước khi mở.'); return;
-    }
+    try { validateModelFile(selected); }
+    catch (error) { setStatus(error.message); return; }
     select(null);
     setMeshes([]);
     setFile(selected);
@@ -206,7 +203,7 @@ export default function App() {
     } catch (error) { setPresetMessage('Cannot import preset: ' + error.message); }
   }
   return <div className="app">
-    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.3 · feature preview</span></header>
+    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.3 · multi-format importer preview</span></header>
     <section className="intro"><p className="eyebrow">YOUR 3D WORKSPACE</p><h1>Explore. Configure. Compare.</h1><p>Model viewer · Unity-style material inspector · WebGL GLSL lab</p></section>
     <nav aria-label="Modules">
       <button className={tab === 'viewer' ? 'active' : ''} onClick={() => setTab('viewer')}>◈ Model Viewer</button>
@@ -216,11 +213,16 @@ export default function App() {
       <section className="panel viewer">
         <h3>{file?.name || 'Sample Robot'} <span>Scene view</span></h3>
         <div className="v02-toolbar">
-          <input ref={input} type="file" hidden accept=".glb,model/gltf-binary" onChange={chooseFile} aria-label="Open GLB"/>
-          <button onClick={() => input.current?.click()}>↑ Open GLB</button>
+          <input ref={input} type="file" hidden accept={IMPORT_ACCEPT} onChange={chooseFile} aria-label="Open 3D model"/>
+          <button onClick={() => input.current?.click()}>↑ Open 3D Model</button>
           <button onClick={sampleRobot} disabled={!file}>↺ Sample robot</button>
           <button onClick={() => setResetCamera(n => n + 1)}>◎ Reset camera</button>
         </div>
+        <details className="importer-details">
+          <summary>Supported formats · {Object.keys(IMPORT_FORMATS).length} formats</summary>
+          <p>{Object.entries(IMPORT_FORMATS).map(([extension, label]) => '.' + extension + ' — ' + label).join(' · ')}</p>
+          <p>Single local file only. glTF/FBX should contain embedded assets; OBJ/MTL sidecars and external textures are not loaded. Scientific point clouds render in the Scene View but are not editable as mesh materials.</p>
+        </details>
         <ModelViewer file={file} color={color} metalness={metalness} roughness={roughness}
           autoRotate={autoRotate} showGrid={showGrid} resetToken={resetCamera}
           onStatus={setStatus} onMeshesChange={setMeshes} selectedMeshId={selectedMeshId}
@@ -339,6 +341,6 @@ export default function App() {
         </section>
       </aside>
     </div> : <section className="panel benchmark"><h2>Compression Benchmark</h2><p>Original vs compressed model comparison is planned. No compression engine is implemented yet.</p></section>}
-    <footer>React + Three.js + React Three Fiber · Material Presets & Uniforms v0.3.3</footer>
+    <footer>React + Three.js + React Three Fiber · Multi-format 3D Import Preview</footer>
   </div>;
 }
