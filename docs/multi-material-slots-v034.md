@@ -38,3 +38,20 @@ Download [demo-two-material-slots.obj](../examples/models/demo-two-material-slot
 - Presets store PBR settings and shader source, not uploaded texture bytes.
 - Some FBX, USDZ, DAE or 3DS formats can have material grouping different from OBJ/glTF and may require additional normalization.
 - This is a preview, not a CAD kernel or physics simulator. No STEP/IGES/SolidWorks-native input, volumetric data simulation or GLB export.
+
+
+## Hotfix verification: Toon Shader crash / locked Roughness slider
+
+The previous v0.3.4 preview caused the browser to close or freeze when the Anime Toon shader was applied. Outlines are now implemented as **detached scene overlays**, not nested under the original mesh. Unsupported meshes skip the outline with a status message. New automated regression tests confirm the outline leaves the original mesh scene graph intact and targets only the chosen material slot.
+
+Imported OBJ/FBX materials often use `MeshPhongMaterial` or `MeshBasicMaterial`, whose Roughness/Metalness fields do not exist. Editing PBR properties now converts **only that material slot** to an editable `MeshStandardMaterial`, preserving available color, texture and transparency.
+
+### Test order (to isolate possible GPU/browser issues)
+
+1. Load `demo-two-material-slots.obj`, select slot 1, disable **Ink outline**, then **Load Anime Toon Demo** and **Compile & Apply**. Observe shader coloring without silhouette. Note: loading the demo turns Ink outline back on, so disable it **after** clicking Load Anime Toon Demo.
+2. Select slot 1, enable **Ink outline**, Compile & Apply again. It should show a black silhouette without a browser crash.
+3. Switch to slot 2; verify its PBR surface remains untouched. Apply Anime Toon to slot 2 and confirm both shaders work.
+4. Return both slots to PBR and move Roughness slider to 0.1, 0.5 and 0.9. The displayed value and reflected appearance should respond independently on both slots.
+5. Repeat on Sample Robot Head and on any known FBX material. Reset and change model files; verify there are no stuck outlines or GPU crashes.
+
+GitHub Actions tests/build verify static shader state, PBR conversion and detached scene-graph behavior. **Actual GPU rendering still requires Windows browser acceptance.** Do not merge until shader and Roughness tests pass.
