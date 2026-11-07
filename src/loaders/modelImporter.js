@@ -44,8 +44,11 @@ function createSurface(geometry, name) {
 }
 function createCloud(geometry, name) {
   if (!geometry?.getAttribute('position')?.count) throw new Error('No 3D points found in the file.');
+  geometry.computeBoundingSphere();
+  const radius = geometry.boundingSphere?.radius || 1;
   const points = new Points(geometry, new PointsMaterial({
-    color: '#ffffff', size: 0.025, sizeAttenuation: true, vertexColors: geometry.hasAttribute('color'),
+    color: '#ffffff', size: Math.max(radius * 0.012, 0.005), sizeAttenuation: true,
+    vertexColors: geometry.hasAttribute('color'),
   }));
   points.name = name;
   return points;
@@ -77,6 +80,13 @@ export async function import3DFile(file) {
     case 'gltf': {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
       const input = ext === 'gltf' ? new TextDecoder().decode(data) : data;
+      if (ext === 'gltf') {
+        const manifest = JSON.parse(input);
+        const resources = [...(manifest.buffers || []), ...(manifest.images || [])];
+        if (resources.some(item => item.uri && !item.uri.startsWith('data:'))) {
+          throw new Error('This .gltf references external buffers or textures. Export a self-contained .glb or embed the resources.');
+        }
+      }
       const gltf = await new GLTFLoader().parseAsync(input, '');
       scene = gltf.scene;
       break;
