@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial } from 'three';
-import { createOutlineOverlay, disposeOutlineOverlay } from '../src/utils/outlineOverlay.js';
+import { createOutlineOverlay, disposeOutlineOverlay, updateOutlineThickness } from '../src/utils/outlineOverlay.js';
 
 function fixture() {
   const geometry = new BufferGeometry();
@@ -49,5 +49,19 @@ test('unsupported skinned or missing-normal mesh never causes a rendering mutati
   geometry.deleteAttribute('normal');
   assert.throws(() => createOutlineOverlay(mesh, 0), /vertex normals/);
   assert.equal(mesh.children.length, 0);
+  mesh.material.forEach(x => x.dispose()); geometry.dispose();
+});
+
+test('updating outline thickness changes live shader uniform without replacing overlay', () => {
+  const { mesh, geometry } = fixture();
+  const outline = createOutlineOverlay(mesh, 1, 0.025);
+  const previous = outline.material[1].uniforms.uOutlineWidth.value;
+  assert.equal(updateOutlineThickness(outline, geometry, 1, 0.08), true);
+  const next = outline.material[1].uniforms.uOutlineWidth.value;
+  assert.ok(next > previous);
+  assert.equal(outline.material[0].visible, false);
+  assert.equal(updateOutlineThickness(outline, geometry, 0, 0.09), false);
+  assert.equal(outline.material[1].uniforms.uOutlineWidth.value, next);
+  disposeOutlineOverlay(outline);
   mesh.material.forEach(x => x.dispose()); geometry.dispose();
 });
