@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { import3DFile } from '../loaders/modelImporter.js';
 import { BackSide, Box3, BoxHelper, Color, Mesh, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
 import { advanceShaderTime } from '../utils/shaderClock.js';
@@ -21,7 +21,7 @@ function disposeModel(scene) {
   if (!scene) return;
   const geometries = new Set(), materials = new Set(), textures = new Set();
   scene.traverse(node => {
-    if (!node.isMesh) return;
+    if (!node.isMesh && !node.isPoints && !node.isLine) return;
     if (node.geometry) geometries.add(node.geometry);
     (Array.isArray(node.material) ? node.material : [node.material]).filter(Boolean).forEach(mat => {
       materials.add(mat);
@@ -130,13 +130,14 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     if (!file) return () => { cancelled = true; };
     (async () => {
       try {
-        const gltf = await new GLTFLoader().parseAsync(await file.arrayBuffer(), '');
-        loaded = gltf.scene;
+        const imported = await import3DFile(file);
+        loaded = imported.scene;
         if (cancelled) { disposeModel(loaded); return; }
         setLoadedModel({ file, scene: loaded });
-        onStatus('Đã mở ' + file.name + ' (' + (file.size / 1048576).toFixed(2) + ' MB).');
+        onStatus('Loaded ' + file.name + ' (' + imported.extension.toUpperCase() + ', ' + imported.meshCount +
+          ' meshes, ' + imported.pointCount.toLocaleString() + ' points).');
       } catch (error) {
-        if (!cancelled) onStatus('Không thể mở GLB: ' + (error?.message || 'File không hợp lệ.'));
+        if (!cancelled) onStatus('Cannot open 3D model: ' + (error?.message || 'Invalid or unsupported file.'));
       }
     })();
     return () => {
