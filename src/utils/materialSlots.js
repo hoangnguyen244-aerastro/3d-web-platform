@@ -20,3 +20,11 @@ export function setMaterialAt(mesh, slotIndex, material) {
 export function materialSlotCount(mesh) {
   return materialsOf(mesh).length;
 }
+
+/** Preserve author-provided names across shader, PBR and preset replacements. */
+export function materialSlotNames(mesh) {
+  return materialsOf(mesh).map((material, index) => {
+    const name = typeof material?.name === 'string' ? material.name.trim() : '';
+    return name || `Material ${index + 1}`;
+  });
+}
