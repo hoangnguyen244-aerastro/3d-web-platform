@@ -9,6 +9,7 @@ import './v032.css';
 import './anime-demo.css';
 import './v033.css';
 import './importer.css';
+import './v034.css';
 
 const DEFAULT_VERTEX = `precision highp float;
 attribute vec3 position;
