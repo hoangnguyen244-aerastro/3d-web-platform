@@ -5,6 +5,7 @@ import { import3DFile } from '../loaders/modelImporter.js';
 import { BackSide, Box3, BoxHelper, Color, Mesh, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
 import { advanceShaderTime } from '../utils/shaderClock.js';
+import { createEditablePbr } from '../utils/editablePbr.js';
 import { materialAt, materialSlotCount, setMaterialAt, slotKey, materialsOf } from '../utils/materialSlots.js';
 import { ANIME_OUTLINE_VERTEX, ANIME_OUTLINE_FRAGMENT } from '../shaders/animeToon.js';
 
@@ -183,33 +184,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
   }, [file, model, onMeshesChange, onInspectorChange]);
 
   function workingPbr(entry) {
-    if (!entry.pbr) {
-      const source = entry.original;
-      if (source?.isMeshStandardMaterial || source?.isMeshPhysicalMaterial) {
-        entry.pbr = source.clone();
-      } else {
-        // OBJ/FBX often import MeshPhongMaterial or MeshBasicMaterial; these do not
-        // expose metalness/roughness. Normalize only the edited slot to Standard PBR.
-        entry.pbr = new MeshStandardMaterial({
-          name: source?.name || 'Imported PBR',
-          color: source?.color?.clone() || new Color('#ffffff'),
-          emissive: source?.emissive?.clone() || new Color('#000000'),
-          metalness: 0,
-          roughness: typeof source?.shininess === 'number'
-            ? Math.max(0.05, Math.min(1, 1 - source.shininess / 120)) : 0.7,
-          map: source?.map || null,
-          normalMap: source?.normalMap || null,
-          metalnessMap: source?.metalnessMap || null,
-          roughnessMap: source?.roughnessMap || null,
-          emissiveMap: source?.emissiveMap || null,
-          transparent: Boolean(source?.transparent),
-          opacity: source?.opacity ?? 1,
-          side: source?.side,
-          wireframe: Boolean(source?.wireframe),
-          vertexColors: Boolean(source?.vertexColors),
-        });
-      }
-    }
+    if (!entry.pbr) entry.pbr = createEditablePbr(entry.original);
     return entry.pbr;
   }
   function clearOutline(entry) {
