@@ -7,6 +7,8 @@ export const IMPORT_FORMATS = Object.freeze({
   gltf: 'glTF JSON (embedded resources)',
   fbx: 'Autodesk FBX',
   obj: 'Wavefront OBJ',
+  dae: 'COLLADA DAE',
+  '3ds': '3D Studio mesh',
   stl: 'STL (CAD / printing)',
   ply: 'PLY (surface / scan)',
   '3mf': '3MF (additive manufacturing)',
@@ -55,7 +57,7 @@ function asGroup(node) {
   return group;
 }
 function geometryHasFaces(geo) {
-  return Boolean(geo.index?.count || geo.getAttribute('normal')?.count);
+  return Boolean(geo.index?.count >= 3);
 }
 // Fallback for geometry-only PLY that holds a pure point set.
 function plyObject(geometry) {
@@ -87,6 +89,16 @@ export async function import3DFile(file) {
     case 'obj': {
       const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js');
       scene = new OBJLoader().parse(new TextDecoder().decode(data));
+      break;
+    }
+    case 'dae': {
+      const { ColladaLoader } = await import('three/addons/loaders/ColladaLoader.js');
+      scene = new ColladaLoader().parse(new TextDecoder().decode(data), '').scene;
+      break;
+    }
+    case '3ds': {
+      const { TDSLoader } = await import('three/addons/loaders/TDSLoader.js');
+      scene = new TDSLoader().parse(data, '');
       break;
     }
     case 'stl': {
