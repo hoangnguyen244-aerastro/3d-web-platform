@@ -241,7 +241,7 @@ export default function App() {
                 className={selectedMeshId === mesh.id ? 'mesh-row selected' : 'mesh-row'} onClick={() => select(mesh.id)}>
                 <span className="mesh-icon">◇</span><span className="mesh-name">{mesh.name}</span>
                 <span className="mesh-tris">{mesh.triangles.toLocaleString()} tris</span>
-              </button>) : <p className="mesh-empty">{status.startsWith('Không thể mở') ? 'Invalid model.' : 'No meshes yet.'}</p>}
+              </button>) : <p className="mesh-empty">{status.startsWith('Cannot open 3D model') ? 'Invalid or unsupported model.' : status.includes('0 meshes,') && status.includes('points') ? 'Point cloud loaded. Scientific points are displayed in Scene View; the mesh Inspector is not available for point data yet.' : 'No meshes yet.'}</p>}
           </div>
         </section>
 
