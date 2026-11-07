@@ -21,6 +21,8 @@ The JSON preset is version 1: `format: "3d-web-platform-material-preset"`, `vers
 
 **Image textures are not embedded** and uploaded textures are left untouched when loading a preset. Texture maps are retained on the mesh you are editing, not transferred from the exporting mesh. This avoids huge data URLs and shader preset files; portable texture packaging and a material library are future work.
 
+The built-in Anime Toon demo now moves its cel-shaded light around the mesh and varies brightness visibly as uTime advances. For easy testing, disable Auto-rotate and compare uTime Speed = 0 (frozen), 1 (moving), and 4 (faster). Speed changes preserve animation phase rather than restarting it. The downloadable anime-toon.frag file matches this demo.
+
 The three controlled uniforms are `uColor` (vec3), `uTime` (float, animated according to the speed control), and `uIntensity` (float). The shader has to declare these names to use them. The built-in anime demo shader now declares all three.
 
 Other existing limits remain: only material slot 1 is editable on multi-material meshes; skinned/animated meshes are not supported by inverted-hull outlines; GLSL ES 1.00 rather than Unity ShaderLab/HLSL; edits to a model are browser-session-only and GLB export is not implemented.
