@@ -1,0 +1,5 @@
+/* Multi-format import preview, contained within the Scene View panel. */
+.importer-details{margin:10px 18px 0;padding:10px 12px;border:1px solid #304c63;border-radius:7px;background:#152332;color:#d6e3ed;font-size:12px}
+.importer-details summary{cursor:pointer;font-weight:600;color:#a9d7fb}
+.importer-details p{line-height:1.55;font-size:11px;color:#b7c7d6;margin:10px 0 2px}
+.importer-details p:last-child{color:#f0cf96}
