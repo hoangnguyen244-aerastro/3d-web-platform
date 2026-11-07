@@ -5,18 +5,12 @@ import { import3DFile } from '../loaders/modelImporter.js';
 import { BackSide, Box3, BoxHelper, Color, Mesh, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
 import { advanceShaderTime } from '../utils/shaderClock.js';
+import { materialAt, materialSlotCount, setMaterialAt, slotKey, materialsOf } from '../utils/materialSlots.js';
 import { ANIME_OUTLINE_VERTEX, ANIME_OUTLINE_FRAGMENT } from '../shaders/animeToon.js';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
 const COLOR_SLOTS = new Set(['map', 'emissiveMap']);
 
-function firstMaterial(node) {
-  return Array.isArray(node.material) ? node.material[0] : node.material;
-}
-function setFirstMaterial(node, material) {
-  if (Array.isArray(node.material)) node.material = [material, ...node.material.slice(1)];
-  else node.material = material;
-}
 function disposeModel(scene) {
   if (!scene) return;
   const geometries = new Set(), materials = new Set(), textures = new Set();
@@ -41,14 +35,14 @@ function collectMeshes(root) {
     const elements = node.geometry.index?.count || vertices;
     results.push({
       id: node.uuid, name: node.name || ('Mesh ' + (results.length + 1)),
-      vertices, triangles: Math.floor(elements / 3),
+      vertices, triangles: Math.floor(elements / 3), slotCount: materialSlotCount(node),
     });
   });
   return results;
 }
 function inspectorInfo(entry) {
   if (!entry) return null;
-  const material = entry.mode === 'shader' ? entry.pbr || entry.original : firstMaterial(entry.mesh);
+  const material = entry.mode === 'shader' ? entry.pbr || entry.original : materialAt(entry.mesh, entry.slotIndex);
   const textures = {};
   TEXTURE_SLOTS.forEach(slot => {
     const tex = material?.[slot];
@@ -62,7 +56,7 @@ function inspectorInfo(entry) {
     metalness: Number(material?.metalness ?? 0),
     roughness: Number(material?.roughness ?? 1),
     textures,
-    slotCount: Array.isArray(entry.mesh.material) ? entry.mesh.material.length : 1,
+    slotCount: materialSlotCount(entry.mesh), slotIndex: entry.slotIndex,
     uniforms: entry.uniformSettings || { color: '#ffffff', speed: 1, intensity: 1 },
     shader: entry.mode === 'shader' ? entry.shaderSettings : null,
   };
@@ -114,7 +108,7 @@ function Highlight({ root, selectedMeshId }) {
   return null;
 }
 function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetToken,
-  onStatus, onMeshesChange, selectedMeshId, onSelectMesh, editCommand, onInspectorChange }) {
+  onStatus, onMeshesChange, selectedMeshId, selectedMaterialSlot, onSelectMesh, editCommand, onInspectorChange }) {
   const [loadedModel, setLoadedModel] = useState(null);
   const model = loadedModel?.file === file ? loadedModel.scene : null;
   const registeredScenes = useRef(new WeakSet());
@@ -151,13 +145,15 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     const root = file ? model : robotRef.current;
     root?.traverse(node => {
       if (!node.isMesh) return;
-      current.set(node.uuid, {
-        mesh: node, original: firstMaterial(node),
-        pbr: null, shader: null, outline: null, mode: 'pbr',
-        shaderSettings: null,
-        uniformSettings: { color: firstMaterial(node)?.color?.getHexString ? '#' + firstMaterial(node).color.getHexString() : '#ffffff', speed: 1, intensity: 1 },
-        uploads: new Map(), textureNames: new Map(),
-        originalVisible: node.visible,
+      materialsOf(node).forEach((material, slotIndex) => {
+        current.set(slotKey(node.uuid, slotIndex), {
+          mesh: node, slotIndex, original: material,
+          pbr: null, shader: null, outline: null, mode: 'pbr',
+          shaderSettings: null,
+          uniformSettings: { color: material?.color?.getHexString ? '#' + material.color.getHexString() : '#ffffff', speed: 1, intensity: 1 },
+          uploads: new Map(), textureNames: new Map(),
+          originalVisible: node.visible,
+        });
       });
     });
     registry.current = current;
@@ -167,7 +163,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     return () => {
       current.forEach(entry => {
         entry.mesh.visible = entry.originalVisible;
-        setFirstMaterial(entry.mesh, entry.original);
+        setMaterialAt(entry.mesh, entry.slotIndex, entry.original);
         clearOutline(entry);
         entry.pbr?.dispose();
         entry.shader?.dispose();
@@ -192,7 +188,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
   function clearOutline(entry) {
     if (!entry.outline) return;
     entry.mesh.remove(entry.outline);
-    entry.outline.material.dispose();
+    materialsOf(entry.outline).forEach(material => material.dispose());
     // Geometry is shared with the original mesh: never dispose it here.
     entry.outline = null;
   }
@@ -210,7 +206,14 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       side: BackSide,
       uniforms: { uOutlineWidth: { value: radius * widthFraction } },
     });
-    const outline = new Mesh(mesh.geometry, material);
+    // Match geometry groups: only the selected slot's faces get the black silhouette.
+    // Invisible materials in the other groups avoid outlining the whole mesh.
+    const outlineMaterials = materialSlotCount(mesh) > 1
+      ? materialsOf(mesh).map((_, index) => index === entry.slotIndex
+        ? material
+        : new MeshStandardMaterial({ visible: false }))
+      : material;
+    const outline = new Mesh(mesh.geometry, outlineMaterials);
     outline.name = 'Ink outline helper (not selectable)';
     outline.raycast = () => {};
     outline.frustumCulled = mesh.frustumCulled;
@@ -240,13 +243,13 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       vertex: options.vertex, fragment: options.fragment,
       outlineEnabled: Boolean(options.outlineEnabled), outlineSize: options.outlineSize || 0.025,
     };
-    setFirstMaterial(entry.mesh, shader);
+    setMaterialAt(entry.mesh, entry.slotIndex, shader);
     if (options.outlineEnabled) createOutline(entry, options.outlineSize || 0.025);
   }
   function notify(entry) { onInspectorChange(inspectorInfo(entry)); }
   useEffect(() => {
-    notify(registry.current.get(selectedMeshId));
-  }, [selectedMeshId, file, model, onInspectorChange]);
+    notify(registry.current.get(slotKey(selectedMeshId, selectedMaterialSlot)));
+  }, [selectedMeshId, selectedMaterialSlot, file, model, onInspectorChange]);
 
   // Preserve v0.2's global controls without altering original GLB textures on initial load.
   useEffect(() => {
@@ -261,14 +264,14 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       material.metalness = metalness;
       material.roughness = roughness;
       material.needsUpdate = true;
-      setFirstMaterial(entry.mesh, material);
+      setMaterialAt(entry.mesh, entry.slotIndex, material);
     });
-    notify(registry.current.get(selectedMeshId));
-  }, [color, metalness, roughness, selectedMeshId]);
+    notify(registry.current.get(slotKey(selectedMeshId, selectedMaterialSlot)));
+  }, [color, metalness, roughness, selectedMeshId, selectedMaterialSlot]);
 
   useEffect(() => {
     if (!editCommand) return;
-    const entry = registry.current.get(editCommand.meshId);
+    const entry = registry.current.get(slotKey(editCommand.meshId, editCommand.slotIndex ?? 0));
     if (!entry) return;
     const { type, property, value, slot } = editCommand;
     if (type === 'reset') {
@@ -281,7 +284,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       entry.uploads.clear(); entry.textureNames.clear();
       entry.mode = 'pbr';
       entry.mesh.visible = entry.originalVisible;
-      setFirstMaterial(entry.mesh, entry.original);
+      setMaterialAt(entry.mesh, entry.slotIndex, entry.original);
     } else if (type === 'visible') {
       entry.mesh.visible = value;
     } else if (type === 'shader') {
@@ -313,12 +316,12 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
         entry.shader = null;
         entry.shaderSettings = null;
         entry.mode = 'pbr';
-        setFirstMaterial(entry.mesh, material);
+        setMaterialAt(entry.mesh, entry.slotIndex, material);
       }
     } else if (type === 'pbr') {
       clearOutline(entry);
       entry.mode = 'pbr';
-      setFirstMaterial(entry.mesh, entry.pbr || entry.original);
+      setMaterialAt(entry.mesh, entry.slotIndex, entry.pbr || entry.original);
     } else if (type === 'property' || type === 'wireframe') {
       const mat = workingPbr(entry);
       if (type === 'wireframe') mat.wireframe = value;
@@ -328,7 +331,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
         if (property in mat) mat[property] = value;
       }
       mat.needsUpdate = true;
-      if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+      if (entry.mode !== 'shader') setMaterialAt(entry.mesh, entry.slotIndex, mat);
       if (type === 'wireframe' && entry.shader) entry.shader.wireframe = value;
     } else if (type === 'removeTexture' && TEXTURE_SLOTS.includes(slot)) {
       const mat = workingPbr(entry);
@@ -337,7 +340,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       if (oldUpload) oldUpload.dispose();
       entry.uploads.delete(slot); entry.textureNames.delete(slot);
       mat.needsUpdate = true;
-      if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+      if (entry.mode !== 'shader') setMaterialAt(entry.mesh, entry.slotIndex, mat);
       if (slot === 'map' && entry.shader) {
         entry.shader.uniforms.uTexture.value = null;
         entry.shader.uniforms.uUseTexture.value = 0;
@@ -348,7 +351,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       const mat = workingPbr(entry);
       new TextureLoader().load(objectUrl, texture => {
         URL.revokeObjectURL(objectUrl);
-        if (registry.current.get(editCommand.meshId) !== entry) { texture.dispose(); return; }
+        if (registry.current.get(slotKey(editCommand.meshId, entry.slotIndex)) !== entry) { texture.dispose(); return; }
         texture.colorSpace = COLOR_SLOTS.has(slot) ? SRGBColorSpace : NoColorSpace;
         texture.flipY = false; // GLB UV convention
         const oldUpload = entry.uploads.get(slot);
@@ -357,7 +360,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
         entry.textureNames.set(slot, imageFile.name);
         mat[slot] = texture;
         mat.needsUpdate = true;
-        if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+        if (entry.mode !== 'shader') setMaterialAt(entry.mesh, entry.slotIndex, mat);
         if (slot === 'map' && entry.shader) {
           entry.shader.uniforms.uTexture.value = texture;
           entry.shader.uniforms.uUseTexture.value = 1;
