@@ -40,3 +40,12 @@ test('parses point-cloud XYZ without claiming mesh support', async () => {
   assert.equal(result.meshCount, 0);
   assert.equal(result.pointCount, 3);
 });
+
+test('rejects glTF with external sidecar resources instead of fetching from the website', async () => {
+  const json = JSON.stringify({
+    asset: { version: '2.0' },
+    buffers: [{ uri: 'remote.bin', byteLength: 12 }],
+    scenes: [{ nodes: [] }], scene: 0,
+  });
+  await assert.rejects(import3DFile(fakeFile('external.gltf', json)), /external buffers or textures/);
+});
