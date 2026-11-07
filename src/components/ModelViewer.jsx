@@ -4,6 +4,7 @@ import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { BackSide, Box3, BoxHelper, Color, Mesh, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
+import { advanceShaderTime } from '../utils/shaderClock.js';
 import { ANIME_OUTLINE_VERTEX, ANIME_OUTLINE_FRAGMENT } from '../shaders/animeToon.js';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
@@ -55,13 +56,15 @@ function inspectorInfo(entry) {
   });
   return {
     mode: entry.mode, visible: entry.mesh.visible,
-    wireframe: Boolean(firstMaterial(entry.mesh)?.wireframe),
+    wireframe: Boolean(material?.wireframe),
     baseColor: material?.color?.getHexString ? '#' + material.color.getHexString() : '#ffffff',
     emissive: material?.emissive?.getHexString ? '#' + material.emissive.getHexString() : '#000000',
     metalness: Number(material?.metalness ?? 0),
     roughness: Number(material?.roughness ?? 1),
     textures,
     slotCount: Array.isArray(entry.mesh.material) ? entry.mesh.material.length : 1,
+    uniforms: entry.uniformSettings || { color: '#ffffff', speed: 1, intensity: 1 },
+    shader: entry.mode === 'shader' ? entry.shaderSettings : null,
   };
 }
 function Camera({ scene, resetToken, autoRotate }) {
@@ -150,6 +153,8 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       current.set(node.uuid, {
         mesh: node, original: firstMaterial(node),
         pbr: null, shader: null, outline: null, mode: 'pbr',
+        shaderSettings: null,
+        uniformSettings: { color: firstMaterial(node)?.color?.getHexString ? '#' + firstMaterial(node).color.getHexString() : '#ffffff', speed: 1, intensity: 1 },
         uploads: new Map(), textureNames: new Map(),
         originalVisible: node.visible,
       });
@@ -212,6 +217,31 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     mesh.add(outline);
     entry.outline = outline;
   }
+  function applyShaderToEntry(entry, options) {
+    clearOutline(entry);
+    entry.shader?.dispose();
+    const pbr = entry.pbr || entry.original;
+    const texture = pbr?.map || null;
+    const settings = entry.uniformSettings;
+    const shader = new RawShaderMaterial({
+      vertexShader: options.vertex, fragmentShader: options.fragment,
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new Color(settings.color) },
+        uTexture: { value: texture },
+        uUseTexture: { value: texture ? 1 : 0 },
+        uIntensity: { value: settings.intensity },
+      },
+    });
+    entry.shader = shader;
+    entry.mode = 'shader';
+    entry.shaderSettings = {
+      vertex: options.vertex, fragment: options.fragment,
+      outlineEnabled: Boolean(options.outlineEnabled), outlineSize: options.outlineSize || 0.025,
+    };
+    setFirstMaterial(entry.mesh, shader);
+    if (options.outlineEnabled) createOutline(entry, options.outlineSize || 0.025);
+  }
   function notify(entry) { onInspectorChange(inspectorInfo(entry)); }
   useEffect(() => {
     notify(registry.current.get(selectedMeshId));
@@ -243,6 +273,8 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     if (type === 'reset') {
       clearOutline(entry);
       entry.shader?.dispose(); entry.shader = null;
+      entry.shaderSettings = null;
+      entry.uniformSettings = { color: entry.original?.color?.getHexString ? '#' + entry.original.color.getHexString() : '#ffffff', speed: 1, intensity: 1 };
       entry.pbr?.dispose(); entry.pbr = null;
       entry.uploads.forEach(texture => texture.dispose());
       entry.uploads.clear(); entry.textureNames.clear();
@@ -252,23 +284,36 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     } else if (type === 'visible') {
       entry.mesh.visible = value;
     } else if (type === 'shader') {
-      clearOutline(entry);
-      entry.shader?.dispose();
-      const pbr = entry.pbr || entry.original;
-      const texture = pbr?.map || null;
-      const shader = new RawShaderMaterial({
-        vertexShader: editCommand.vertex, fragmentShader: editCommand.fragment,
-        uniforms: {
-          uTime: { value: 0 },
-          uColor: { value: pbr?.color?.clone() || new Color('#ffffff') },
-          uTexture: { value: texture },
-          uUseTexture: { value: texture ? 1 : 0 },
-        },
-      });
-      entry.shader = shader;
-      entry.mode = 'shader';
-      setFirstMaterial(entry.mesh, shader);
-      if (editCommand.outlineEnabled) createOutline(entry, editCommand.outlineSize || 0.025);
+      applyShaderToEntry(entry, editCommand);
+    } else if (type === 'uniform') {
+      const u = entry.uniformSettings;
+      if (property === 'color' && /^#[0-9a-fA-F]{6}$/.test(value)) u.color = value;
+      if (property === 'speed' && Number.isFinite(value)) u.speed = Math.max(0, Math.min(5, value));
+      if (property === 'intensity' && Number.isFinite(value)) u.intensity = Math.max(0, Math.min(2, value));
+      if (entry.shader) {
+        entry.shader.uniforms.uColor.value.set(u.color);
+        entry.shader.uniforms.uIntensity.value = u.intensity;
+      }
+    } else if (type === 'preset') {
+      const preset = editCommand.preset;
+      const material = workingPbr(entry);
+      if (material.color?.isColor) material.color.set(preset.pbr.baseColor);
+      if (material.emissive?.isColor) material.emissive.set(preset.pbr.emissive);
+      if ('metalness' in material) material.metalness = preset.pbr.metalness;
+      if ('roughness' in material) material.roughness = preset.pbr.roughness;
+      material.wireframe = preset.pbr.wireframe;
+      material.needsUpdate = true;
+      entry.mesh.visible = preset.visible;
+      entry.uniformSettings = { ...preset.uniforms };
+      if (preset.mode === 'shader') applyShaderToEntry(entry, preset.shader);
+      else {
+        clearOutline(entry);
+        entry.shader?.dispose();
+        entry.shader = null;
+        entry.shaderSettings = null;
+        entry.mode = 'pbr';
+        setFirstMaterial(entry.mesh, material);
+      }
     } else if (type === 'pbr') {
       clearOutline(entry);
       entry.mode = 'pbr';
@@ -326,9 +371,12 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     notify(entry);
   }, [editCommand, onInspectorChange, onStatus]);
 
-  useFrame(state => {
+  useFrame((_state, delta) => {
     registry.current.forEach(entry => {
-      if (entry.shader) entry.shader.uniforms.uTime.value = state.clock.elapsedTime;
+      if (entry.mode === 'shader' && entry.shader) {
+        const time = entry.shader.uniforms.uTime;
+        time.value = advanceShaderTime(time.value, delta, entry.uniformSettings.speed);
+      }
     });
   });
 
