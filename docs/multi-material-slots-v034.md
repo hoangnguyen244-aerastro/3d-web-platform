@@ -34,7 +34,7 @@ Download [demo-two-material-slots.obj](../examples/models/demo-two-material-slot
 ## Known limitations
 
 - Still operates on one selected mesh at a time; material visibility is per mesh.
-- The GLSL *source editor* is shared in the UI; applying its code targets only the active material slot. Switch the slot before pressing Compile & Apply. Save Preset records each applied slot's shader.
+- The GLSL source editor shows the shader saved for the currently selected slot when you switch slots (or the default starter script for a PBR slot). Applying code targets the active slot only. Unsaved text edits should be compiled or copied before switching slots. Save Preset records each applied slot's shader.
 - Presets store PBR settings and shader source, not uploaded texture bytes.
 - Some FBX, USDZ, DAE or 3DS formats can have material grouping different from OBJ/glTF and may require additional normalization.
 - This is a preview, not a CAD kernel or physics simulator. No STEP/IGES/SolidWorks-native input, volumetric data simulation or GLB export.
