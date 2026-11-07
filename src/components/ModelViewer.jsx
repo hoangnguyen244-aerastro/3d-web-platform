@@ -307,6 +307,9 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       if (preset.mode === 'shader') applyShaderToEntry(entry, preset.shader);
       else {
         clearOutline(entry);
+        entry.shader?.dispose();
+        entry.shader = null;
+        entry.shaderSettings = null;
         entry.mode = 'pbr';
         setFirstMaterial(entry.mesh, material);
       }
