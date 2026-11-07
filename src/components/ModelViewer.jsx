@@ -2,12 +2,12 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { import3DFile } from '../loaders/modelImporter.js';
-import { BackSide, Box3, BoxHelper, Color, Mesh, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
+import { Box3, BoxHelper, Color, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
 import { advanceShaderTime } from '../utils/shaderClock.js';
 import { createEditablePbr } from '../utils/editablePbr.js';
 import { materialAt, materialSlotCount, setMaterialAt, slotKey, materialsOf } from '../utils/materialSlots.js';
-import { ANIME_OUTLINE_VERTEX, ANIME_OUTLINE_FRAGMENT } from '../shaders/animeToon.js';
+import { createOutlineOverlay, disposeOutlineOverlay } from '../utils/outlineOverlay.js';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
 const COLOR_SLOTS = new Set(['map', 'emissiveMap']);
@@ -190,44 +190,20 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
   function clearOutline(entry) {
     if (!entry.outline) return;
     overlayScene.remove(entry.outline);
-    materialsOf(entry.outline).forEach(material => material.dispose());
-    // Geometry is shared with the original mesh: never dispose it here.
+    disposeOutlineOverlay(entry.outline);
     entry.outline = null;
   }
   function createOutline(entry, widthFraction) {
     const mesh = entry.mesh;
-    if (mesh.isSkinnedMesh || !mesh.geometry?.getAttribute('normal')) {
-      onStatus('Outline needs a static mesh with vertex normals.');
-      return;
+    try {
+      const outline = createOutlineOverlay(mesh, entry.slotIndex, widthFraction);
+      mesh.updateWorldMatrix(true, false);
+      outline.matrix.copy(mesh.matrixWorld);
+      overlayScene.add(outline);
+      entry.outline = outline;
+    } catch (error) {
+      onStatus('Anime outline skipped: ' + (error?.message || 'Unsupported geometry.'));
     }
-    mesh.geometry.computeBoundingSphere();
-    const radius = Math.max(mesh.geometry.boundingSphere?.radius || 1, 0.001);
-    const material = new RawShaderMaterial({
-      vertexShader: ANIME_OUTLINE_VERTEX,
-      fragmentShader: ANIME_OUTLINE_FRAGMENT,
-      side: BackSide,
-      uniforms: { uOutlineWidth: { value: radius * widthFraction } },
-    });
-    // Match geometry groups: only the selected slot's faces get the black silhouette.
-    // Invisible materials in the other groups avoid outlining the whole mesh.
-    const outlineMaterials = materialSlotCount(mesh) > 1
-      ? materialsOf(mesh).map((_, index) => index === entry.slotIndex
-        ? material
-        : new MeshStandardMaterial({ visible: false }))
-      : material;
-    const outline = new Mesh(mesh.geometry, outlineMaterials);
-    outline.name = 'Ink outline helper (not selectable)';
-    outline.raycast = () => {};
-    outline.frustumCulled = mesh.frustumCulled;
-    outline.renderOrder = -1;
-    // Keep the outline outside the source mesh and R3F-managed model hierarchy.
-    // A nested duplicate can affect picking, bounds and scene reconciliation.
-    mesh.updateWorldMatrix(true, false);
-    outline.matrixAutoUpdate = false;
-    outline.matrix.copy(mesh.matrixWorld);
-    outline.frustumCulled = false;
-    overlayScene.add(outline);
-    entry.outline = outline;
   }
   function applyShaderToEntry(entry, options) {
     clearOutline(entry);
