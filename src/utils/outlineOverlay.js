@@ -43,3 +43,15 @@ export function disposeOutlineOverlay(outline) {
   materialsOf(outline).forEach(material => material.dispose());
   // The shared geometry belongs to the source mesh; do not dispose it here.
 }
+
+/** Change an existing outline width without recompiling or adding geometry. */
+export function updateOutlineThickness(outline, geometry, slotIndex, widthFraction) {
+  const thickness = Number(widthFraction);
+  if (!outline || !geometry || !Number.isFinite(thickness)) return false;
+  const material = materialsOf(outline)[slotIndex];
+  if (!material?.uniforms?.uOutlineWidth) return false;
+  geometry.computeBoundingSphere();
+  const radius = Math.max(geometry.boundingSphere?.radius || 1, 0.001);
+  material.uniforms.uOutlineWidth.value = radius * Math.max(0.005, Math.min(0.1, thickness));
+  return true;
+}
