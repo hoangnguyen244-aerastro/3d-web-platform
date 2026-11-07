@@ -16,6 +16,8 @@ void main() {
 }`;
 
 export const ANIME_TOON_FRAGMENT = `precision highp float;
+uniform float uTime;
+uniform float uIntensity;
 uniform vec3 uColor;
 uniform sampler2D uTexture;
 uniform float uUseTexture;
@@ -30,7 +32,8 @@ void main() {
   if (uUseTexture > 0.5) base *= texture2D(uTexture, vUv).rgb;
   float rim = pow(1.0 - max(N.z, 0.0), 3.0);
   float rimBand = step(0.65, rim) * 0.18;
-  gl_FragColor = vec4(base * (band + rimBand), 1.0);
+  float softPulse = 0.97 + 0.03 * sin(uTime * 2.0);
+  gl_FragColor = vec4(base * (band + rimBand) * uIntensity * softPulse, 1.0);
 }`;
 
 // Inverted-hull outline uses a second BackSide draw of the mesh geometry.
