@@ -289,7 +289,8 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       entry.uploads.forEach(texture => texture.dispose());
       entry.uploads.clear(); entry.textureNames.clear();
       entry.mode = 'pbr';
-      entry.mesh.visible = entry.originalVisible;
+      // Visibility belongs to the whole mesh: resetting one slot must not alter its neighbors.
+      if (materialSlotCount(entry.mesh) === 1) entry.mesh.visible = entry.originalVisible;
       setMaterialAt(entry.mesh, entry.slotIndex, entry.original);
     } else if (type === 'visible') {
       entry.mesh.visible = value;
