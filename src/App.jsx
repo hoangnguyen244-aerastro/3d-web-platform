@@ -74,6 +74,7 @@ export default function App() {
   const [file, setFile] = useState(null);
   const [meshes, setMeshes] = useState([]);
   const [selectedMeshId, setSelectedMeshId] = useState(null);
+  const [selectedMaterialSlot, setSelectedMaterialSlot] = useState(0);
   const [inspector, setInspector] = useState(null);
   const [color, setColor] = useState('#58b8ff');
   const [metalness, setMetalness] = useState(0.35);
@@ -94,14 +95,24 @@ export default function App() {
   const idCounter = useRef(0);
   const selectionRef = useRef(null);
   selectionRef.current = selectedMeshId;
+  const selectedSlotRef = useRef(0);
+  selectedSlotRef.current = selectedMaterialSlot;
   const chosen = meshes.find(mesh => mesh.id === selectedMeshId);
 
   function command(type, extra = {}) {
     if (!selectedMeshId) return;
-    setEdit({ sequence: ++idCounter.current, meshId: selectedMeshId, type, ...extra });
+    setEdit({ sequence: ++idCounter.current, meshId: selectedMeshId, slotIndex: selectedMaterialSlot, type, ...extra });
   }
   function select(id) {
     setSelectedMeshId(id);
+    setSelectedMaterialSlot(0);
+    setInspector(null);
+    setShaderMessage('');
+    setPresetMessage('');
+  }
+  function selectMaterialSlot(index) {
+    if (!chosen || index < 0 || index >= chosen.slotCount) return;
+    setSelectedMaterialSlot(index);
     setInspector(null);
     setShaderMessage('');
     setPresetMessage('');
@@ -170,7 +181,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = (chosen.name.replace(/[^a-z0-9_-]/gi, '_').slice(0, 45) || 'material') + '.material.json';
+      anchor.download = (chosen.name.replace(/[^a-z0-9_-]/gi, '_').slice(0, 45) || 'material') + '-slot-' + (selectedMaterialSlot + 1) + '.material.json';
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       setPresetMessage('Preset downloaded. Texture image bytes are not included.');
@@ -184,13 +195,14 @@ export default function App() {
       setPresetMessage('Preset file is too large (max 180 KB).'); return;
     }
     const intendedMesh = selectedMeshId;
+    const intendedSlot = selectedMaterialSlot;
     try {
       const preset = parseMaterialPreset(JSON.parse(await selected.text()));
       if (preset.mode === 'shader') {
         const error = verifyGLSL(preset.shader.vertex, preset.shader.fragment);
         if (error) throw new Error(error);
       }
-      if (intendedMesh !== selectionRef.current) {
+      if (intendedMesh !== selectionRef.current || intendedSlot !== selectedSlotRef.current) {
         setPresetMessage('Mesh selection changed. Select the target again before importing.'); return;
       }
       if (preset.shader) {
@@ -200,11 +212,11 @@ export default function App() {
         setOutlineSize(preset.shader.outlineSize);
       }
       command('preset', { preset });
-      setPresetMessage('Material preset applied to selected mesh. Existing texture slots are retained.');
+      setPresetMessage('Material preset applied to selected slot. Existing texture maps are retained.');
     } catch (error) { setPresetMessage('Cannot import preset: ' + error.message); }
   }
   return <div className="app">
-    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.3 · multi-format importer preview</span></header>
+    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.4 · multi-material slots preview</span></header>
     <section className="intro"><p className="eyebrow">YOUR 3D WORKSPACE</p><h1>Explore. Configure. Compare.</h1><p>Model viewer · Unity-style material inspector · WebGL GLSL lab</p></section>
     <nav aria-label="Modules">
       <button className={tab === 'viewer' ? 'active' : ''} onClick={() => setTab('viewer')}>◈ Model Viewer</button>
@@ -226,7 +238,7 @@ export default function App() {
         </details>
         <ModelViewer file={file} color={color} metalness={metalness} roughness={roughness}
           autoRotate={autoRotate} showGrid={showGrid} resetToken={resetCamera}
-          onStatus={setStatus} onMeshesChange={setMeshes} selectedMeshId={selectedMeshId}
+          onStatus={setStatus} onMeshesChange={setMeshes} selectedMeshId={selectedMeshId} selectedMaterialSlot={selectedMaterialSlot}
           onSelectMesh={select} editCommand={edit} onInspectorChange={setInspector}/>
         <p className="caption">Left click to select · Drag to orbit · Scroll to zoom · Right-drag to pan</p>
         <p className="v02-status" role="status">{status}</p>
@@ -253,9 +265,17 @@ export default function App() {
               <span>{chosen.vertices.toLocaleString()} vertices · {chosen.triangles.toLocaleString()} triangles</span>
             </div>
             <div className="unity-component">
-              <div className="unity-component-heading">▾ Mesh Renderer <small>Material {inspector?.slotCount > 1 ? '1 / ' + inspector.slotCount : ''}</small></div>
+              <div className="unity-component-heading">▾ Mesh Renderer <small>Material {selectedMaterialSlot + 1} / {chosen.slotCount}</small></div>
               <div className="unity-row"><label>Shader</label><strong>{inspector?.mode === 'shader' ? 'Custom WebGL GLSL' : 'Standard PBR'}</strong></div>
-              {inspector?.slotCount > 1 && <p className="unity-tip">This preview edits material slot 1 only; multiple material slot editing is planned next.</p>}
+              <div className="unity-material-slots">
+                <label htmlFor="selected-material-slot">Active material slot</label>
+                <select id="selected-material-slot" value={selectedMaterialSlot}
+                  onChange={e => selectMaterialSlot(Number(e.target.value))}>
+                  {Array.from({ length: chosen.slotCount }, (_, index) =>
+                    <option key={index} value={index}>Material {index + 1} / {chosen.slotCount}</option>)}
+                </select>
+                <p className="unity-tip">PBR color, textures, shader, presets and Reset affect only this slot. Visibility is a mesh-wide setting.</p>
+              </div>
               <div className="unity-row"><label>Visible</label><input type="checkbox" checked={inspector?.visible ?? true} onChange={e => command('visible', { value: e.target.checked })}/></div>
               <div className="unity-row"><label>Wireframe</label><input type="checkbox" checked={inspector?.wireframe ?? false} onChange={e => command('wireframe', { value: e.target.checked })}/></div>
             </div>
@@ -324,7 +344,7 @@ export default function App() {
               {shaderMessage && <p className="unity-compiler-log" role="status">{shaderMessage}</p>}
               <p className="unity-tip">Built-in demo uniforms: uTime, uColor, uTexture, uUseTexture. Custom GLSL runs on the GPU; use trusted files.</p>
             </div>
-            <button className="unity-reset" onClick={() => command('reset')}>↺ Reset selected material</button>
+            <button className="unity-reset" onClick={() => command('reset')}>↺ Reset selected material slot</button>
           </>}
         </section>
         <section className="unity-section">
@@ -342,6 +362,6 @@ export default function App() {
         </section>
       </aside>
     </div> : <section className="panel benchmark"><h2>Compression Benchmark</h2><p>Original vs compressed model comparison is planned. No compression engine is implemented yet.</p></section>}
-    <footer>React + Three.js + React Three Fiber · Multi-format 3D Import Preview</footer>
+    <footer>React + Three.js + React Three Fiber · Multi-Material Slot Inspector v0.3.4</footer>
   </div>;
 }
