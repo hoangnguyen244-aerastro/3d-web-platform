@@ -1,0 +1,10 @@
+3D WEB PLATFORM v0.3.4 — ORIGINAL Boat.fbx ASSET
+
+1. In GitHub Desktop, select repository 3d-web-platform and branch feature/v0.3.4-multi-material-slots.
+2. Open Repository > Show in Explorer, then extract this ZIP at the ROOT of the repository.
+3. It should create public/models/Boat.fbx (keep the name exactly).
+4. GitHub Desktop > Commit changes > Push origin to update Pull Request #4.
+5. Run npm.cmd run dev and verify Boat loads on initial launch.
+
+Boat.fbx SHA256: 25536d1b9c63e62cbf83dbc82850ea173011884101aad6d1c47b1581bfbd7540
+Size: 1,131,936 bytes. Original embedded FBX, no conversion.

@@ -1,0 +1,5 @@
+/* v0.3.4: explicit material-slot targeting inside Unity-like Mesh Renderer */
+.unity-material-slots{padding:10px 0;border-top:1px solid #4c5b66;margin:8px 0}
+.unity-material-slots label{display:block;color:#c9dbe9;font-size:11px;font-weight:600;margin-bottom:7px}
+.unity-material-slots select{width:100%;min-height:35px;background:#202e3a;color:#eaf3fd;border:1px solid #69869e;border-radius:4px;padding:7px 9px;font:inherit;font-size:12px}
+.unity-material-slots select:focus-visible{outline:2px solid #72bdff;outline-offset:2px}

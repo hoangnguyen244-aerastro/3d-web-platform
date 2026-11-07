@@ -1,5 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ModelViewer from './components/ModelViewer.jsx';
+import { IMPORT_ACCEPT, IMPORT_FORMATS, validateModelFile } from './loaders/modelImporter.js';
+import { loadBoatFile } from './loaders/defaultBoat.js';
 import { makeMaterialPreset, parseMaterialPreset } from './utils/materialPreset.js';
 import { ANIME_TOON_VERTEX, ANIME_TOON_FRAGMENT } from './shaders/animeToon.js';
 import './v02.css';
@@ -7,6 +9,8 @@ import './v031.css';
 import './v032.css';
 import './anime-demo.css';
 import './v033.css';
+import './importer.css';
+import './v034.css';
 
 const DEFAULT_VERTEX = `precision highp float;
 attribute vec3 position;
@@ -72,6 +76,7 @@ export default function App() {
   const [file, setFile] = useState(null);
   const [meshes, setMeshes] = useState([]);
   const [selectedMeshId, setSelectedMeshId] = useState(null);
+  const [selectedMaterialSlot, setSelectedMaterialSlot] = useState(0);
   const [inspector, setInspector] = useState(null);
   const [color, setColor] = useState('#58b8ff');
   const [metalness, setMetalness] = useState(0.35);
@@ -87,19 +92,58 @@ export default function App() {
   const [outlineSize, setOutlineSize] = useState(0.025);
   const [edit, setEdit] = useState(null);
   const input = useRef(null);
+  const userModelChoice = useRef(false);
   const presetInput = useRef(null);
   const [presetMessage, setPresetMessage] = useState('');
   const idCounter = useRef(0);
   const selectionRef = useRef(null);
   selectionRef.current = selectedMeshId;
+  const selectedSlotRef = useRef(0);
+  selectedSlotRef.current = selectedMaterialSlot;
   const chosen = meshes.find(mesh => mesh.id === selectedMeshId);
+  const lastEditorSlot = useRef(null);
+  useEffect(() => {
+    if (!inspector || !selectedMeshId) return;
+    const current = selectedMeshId + ':' + selectedMaterialSlot;
+    if (lastEditorSlot.current === current) return;
+    lastEditorSlot.current = current;
+    setVertex(inspector.shader?.vertex || DEFAULT_VERTEX);
+    setFragment(inspector.shader?.fragment || DEFAULT_FRAGMENT);
+    setOutlineEnabled(Boolean(inspector.shader?.outlineEnabled));
+    setOutlineSize(inspector.shader?.outlineSize || 0.025);
+  }, [inspector, selectedMeshId, selectedMaterialSlot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const boatUrl = import.meta.env.BASE_URL + 'models/Boat.fbx';
+    loadBoatFile(boatUrl)
+      .then(boat => {
+        if (cancelled || userModelChoice.current) return;
+        setMeshes([]);
+        setFile(boat);
+        setStatus('Đang tải Boat.fbx mặc định với textures nhúng...');
+      })
+      .catch(error => {
+        if (!cancelled && !userModelChoice.current)
+          setStatus('Boat.fbx chưa được cài đặt: ' + error.message + ' Hiện dùng robot mẫu.');
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   function command(type, extra = {}) {
     if (!selectedMeshId) return;
-    setEdit({ sequence: ++idCounter.current, meshId: selectedMeshId, type, ...extra });
+    setEdit({ sequence: ++idCounter.current, meshId: selectedMeshId, slotIndex: selectedMaterialSlot, type, ...extra });
   }
-  function select(id) {
+  function select(id, slotIndex = 0) {
     setSelectedMeshId(id);
+    setSelectedMaterialSlot(id ? slotIndex : 0);
+    setInspector(null);
+    setShaderMessage('');
+    setPresetMessage('');
+  }
+  function selectMaterialSlot(index) {
+    if (!chosen || index < 0 || index >= chosen.slotCount) return;
+    setSelectedMaterialSlot(index);
     setInspector(null);
     setShaderMessage('');
     setPresetMessage('');
@@ -108,18 +152,16 @@ export default function App() {
     const selected = event.target.files?.[0];
     event.target.value = '';
     if (!selected) return;
-    if (!selected.name.toLowerCase().endsWith('.glb')) {
-      setStatus('Chỉ hỗ trợ .glb tự chứa ở phiên bản này.'); return;
-    }
-    if (selected.size > 50 * 1024 * 1024) {
-      setStatus('File lớn hơn 50 MB. Hãy tối ưu trước khi mở.'); return;
-    }
+    try { validateModelFile(selected); }
+    catch (error) { setStatus(error.message); return; }
+    userModelChoice.current = true;
     select(null);
     setMeshes([]);
     setFile(selected);
     setStatus('Đang mở ' + selected.name + '...');
   }
   function sampleRobot() {
+    userModelChoice.current = true;
     select(null); setMeshes([]); setFile(null);
     setColor('#58b8ff'); setMetalness(.35); setRoughness(.42);
     setResetCamera(n => n + 1);
@@ -172,7 +214,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = (chosen.name.replace(/[^a-z0-9_-]/gi, '_').slice(0, 45) || 'material') + '.material.json';
+      anchor.download = (chosen.name.replace(/[^a-z0-9_-]/gi, '_').slice(0, 45) || 'material') + '-slot-' + (selectedMaterialSlot + 1) + '.material.json';
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       setPresetMessage('Preset downloaded. Texture image bytes are not included.');
@@ -186,13 +228,14 @@ export default function App() {
       setPresetMessage('Preset file is too large (max 180 KB).'); return;
     }
     const intendedMesh = selectedMeshId;
+    const intendedSlot = selectedMaterialSlot;
     try {
       const preset = parseMaterialPreset(JSON.parse(await selected.text()));
       if (preset.mode === 'shader') {
         const error = verifyGLSL(preset.shader.vertex, preset.shader.fragment);
         if (error) throw new Error(error);
       }
-      if (intendedMesh !== selectionRef.current) {
+      if (intendedMesh !== selectionRef.current || intendedSlot !== selectedSlotRef.current) {
         setPresetMessage('Mesh selection changed. Select the target again before importing.'); return;
       }
       if (preset.shader) {
@@ -202,11 +245,11 @@ export default function App() {
         setOutlineSize(preset.shader.outlineSize);
       }
       command('preset', { preset });
-      setPresetMessage('Material preset applied to selected mesh. Existing texture slots are retained.');
+      setPresetMessage('Material preset applied to selected slot. Existing texture maps are retained.');
     } catch (error) { setPresetMessage('Cannot import preset: ' + error.message); }
   }
   return <div className="app">
-    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.3 · feature preview</span></header>
+    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.4 · multi-material slots preview</span></header>
     <section className="intro"><p className="eyebrow">YOUR 3D WORKSPACE</p><h1>Explore. Configure. Compare.</h1><p>Model viewer · Unity-style material inspector · WebGL GLSL lab</p></section>
     <nav aria-label="Modules">
       <button className={tab === 'viewer' ? 'active' : ''} onClick={() => setTab('viewer')}>◈ Model Viewer</button>
@@ -216,16 +259,21 @@ export default function App() {
       <section className="panel viewer">
         <h3>{file?.name || 'Sample Robot'} <span>Scene view</span></h3>
         <div className="v02-toolbar">
-          <input ref={input} type="file" hidden accept=".glb,model/gltf-binary" onChange={chooseFile} aria-label="Open GLB"/>
-          <button onClick={() => input.current?.click()}>↑ Open GLB</button>
+          <input ref={input} type="file" hidden accept={IMPORT_ACCEPT} onChange={chooseFile} aria-label="Open 3D model"/>
+          <button onClick={() => input.current?.click()}>↑ Open 3D Model</button>
           <button onClick={sampleRobot} disabled={!file}>↺ Sample robot</button>
           <button onClick={() => setResetCamera(n => n + 1)}>◎ Reset camera</button>
         </div>
+        <details className="importer-details">
+          <summary>Supported formats · {Object.keys(IMPORT_FORMATS).length} formats</summary>
+          <p>{Object.entries(IMPORT_FORMATS).map(([extension, label]) => '.' + extension + ' — ' + label).join(' · ')}</p>
+          <p>Single local file only. glTF/FBX should contain embedded assets; OBJ/MTL sidecars and external textures are not loaded. Scientific point clouds render in the Scene View but are not editable as mesh materials.</p>
+        </details>
         <ModelViewer file={file} color={color} metalness={metalness} roughness={roughness}
           autoRotate={autoRotate} showGrid={showGrid} resetToken={resetCamera}
-          onStatus={setStatus} onMeshesChange={setMeshes} selectedMeshId={selectedMeshId}
+          onStatus={setStatus} onMeshesChange={setMeshes} selectedMeshId={selectedMeshId} selectedMaterialSlot={selectedMaterialSlot}
           onSelectMesh={select} editCommand={edit} onInspectorChange={setInspector}/>
-        <p className="caption">Left click to select · Drag to orbit · Scroll to zoom · Right-drag to pan</p>
+        <p className="caption">Click a surface to select mesh + material slot · Drag to orbit · Scroll to zoom · Right-drag to pan</p>
         <p className="v02-status" role="status">{status}</p>
       </section>
 
@@ -238,7 +286,7 @@ export default function App() {
                 className={selectedMeshId === mesh.id ? 'mesh-row selected' : 'mesh-row'} onClick={() => select(mesh.id)}>
                 <span className="mesh-icon">◇</span><span className="mesh-name">{mesh.name}</span>
                 <span className="mesh-tris">{mesh.triangles.toLocaleString()} tris</span>
-              </button>) : <p className="mesh-empty">{status.startsWith('Không thể mở') ? 'Invalid model.' : 'No meshes yet.'}</p>}
+              </button>) : <p className="mesh-empty">{status.startsWith('Cannot open 3D model') ? 'Invalid or unsupported model.' : status.includes('0 meshes,') && status.includes('points') ? 'Point cloud loaded. Scientific points are displayed in Scene View; the mesh Inspector is not available for point data yet.' : 'No meshes yet.'}</p>}
           </div>
         </section>
 
@@ -250,9 +298,17 @@ export default function App() {
               <span>{chosen.vertices.toLocaleString()} vertices · {chosen.triangles.toLocaleString()} triangles</span>
             </div>
             <div className="unity-component">
-              <div className="unity-component-heading">▾ Mesh Renderer <small>Material {inspector?.slotCount > 1 ? '1 / ' + inspector.slotCount : ''}</small></div>
+              <div className="unity-component-heading">▾ Mesh Renderer <small>{chosen.materialNames?.[selectedMaterialSlot] || 'Material ' + (selectedMaterialSlot + 1)} · {selectedMaterialSlot + 1}/{chosen.slotCount}</small></div>
               <div className="unity-row"><label>Shader</label><strong>{inspector?.mode === 'shader' ? 'Custom WebGL GLSL' : 'Standard PBR'}</strong></div>
-              {inspector?.slotCount > 1 && <p className="unity-tip">This preview edits material slot 1 only; multiple material slot editing is planned next.</p>}
+              <div className="unity-material-slots">
+                <label htmlFor="selected-material-slot">Active material slot</label>
+                <select id="selected-material-slot" value={selectedMaterialSlot}
+                  onChange={e => selectMaterialSlot(Number(e.target.value))}>
+                  {Array.from({ length: chosen.slotCount }, (_, index) =>
+                    <option key={index} value={index}>{chosen.materialNames?.[index] || 'Material ' + (index + 1)} · {index + 1}/{chosen.slotCount}</option>)}
+                </select>
+                <p className="unity-tip">PBR color, textures, shader, presets and Reset affect only this slot. Visibility is a mesh-wide setting.</p>
+              </div>
               <div className="unity-row"><label>Visible</label><input type="checkbox" checked={inspector?.visible ?? true} onChange={e => command('visible', { value: e.target.checked })}/></div>
               <div className="unity-row"><label>Wireframe</label><input type="checkbox" checked={inspector?.wireframe ?? false} onChange={e => command('wireframe', { value: e.target.checked })}/></div>
             </div>
@@ -294,8 +350,8 @@ export default function App() {
                 <button type="button" className="anime-demo-button" onClick={loadAnimeDemo}>Load Anime Toon Demo</button>
               </div>
               <label className="unity-check">Ink outline (static meshes) <input type="checkbox" checked={outlineEnabled} onChange={e=>setOutlineEnabled(e.target.checked)}/></label>
-              <div className="unity-slider-row"><label>Outline Thickness <span>{outlineSize.toFixed(3)}</span></label><input type="range" min="0.005" max="0.1" step="0.005" value={outlineSize} disabled={!outlineEnabled} onChange={e=>setOutlineSize(Number(e.target.value))}/></div>
-              <p className="unity-tip">Outline thickness is relative to mesh bounds. Changes take effect after Compile & Apply. Skinned meshes are excluded in this preview.</p>
+              <div className="unity-slider-row"><label>Outline Thickness <span>{outlineSize.toFixed(3)}</span></label><input type="range" min="0.005" max="0.1" step="0.005" value={outlineSize} disabled={!outlineEnabled} onChange={e=>{ const size = Number(e.target.value); setOutlineSize(size); if (inspector?.mode === 'shader' && inspector?.shader?.outlineEnabled) command('outlineThickness', { value: size }); }}/></div>
+              <p className="unity-tip">Outline thickness updates live when a shader outline is active. Enabling or disabling the outline still requires Compile & Apply. Skinned meshes are excluded.</p>
               <div className="unity-uniform-panel">
                 <strong>Shader Uniforms · Live</strong>
                 <div className="unity-row"><label htmlFor="shader-uniform-color">uColor</label>
@@ -321,7 +377,7 @@ export default function App() {
               {shaderMessage && <p className="unity-compiler-log" role="status">{shaderMessage}</p>}
               <p className="unity-tip">Built-in demo uniforms: uTime, uColor, uTexture, uUseTexture. Custom GLSL runs on the GPU; use trusted files.</p>
             </div>
-            <button className="unity-reset" onClick={() => command('reset')}>↺ Reset selected material</button>
+            <button className="unity-reset" onClick={() => command('reset')}>↺ Reset selected material slot</button>
           </>}
         </section>
         <section className="unity-section">
@@ -339,6 +395,6 @@ export default function App() {
         </section>
       </aside>
     </div> : <section className="panel benchmark"><h2>Compression Benchmark</h2><p>Original vs compressed model comparison is planned. No compression engine is implemented yet.</p></section>}
-    <footer>React + Three.js + React Three Fiber · Material Presets & Uniforms v0.3.3</footer>
+    <footer>React + Three.js + React Three Fiber · Multi-Material Slot Inspector v0.3.4</footer>
   </div>;
 }

@@ -1,27 +1,23 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { BackSide, Box3, BoxHelper, Color, Mesh, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
+import { import3DFile } from '../loaders/modelImporter.js';
+import { Box3, BoxHelper, Color, NoColorSpace, RawShaderMaterial, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
 import SampleRobot from './SampleRobot.jsx';
 import { advanceShaderTime } from '../utils/shaderClock.js';
-import { ANIME_OUTLINE_VERTEX, ANIME_OUTLINE_FRAGMENT } from '../shaders/animeToon.js';
+import { createEditablePbr } from '../utils/editablePbr.js';
+import { materialSlotFromHit } from '../utils/materialPicking.js';
+import { materialAt, materialSlotCount, setMaterialAt, slotKey, materialsOf, materialSlotNames } from '../utils/materialSlots.js';
+import { createOutlineOverlay, disposeOutlineOverlay, updateOutlineThickness } from '../utils/outlineOverlay.js';
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap'];
 const COLOR_SLOTS = new Set(['map', 'emissiveMap']);
 
-function firstMaterial(node) {
-  return Array.isArray(node.material) ? node.material[0] : node.material;
-}
-function setFirstMaterial(node, material) {
-  if (Array.isArray(node.material)) node.material = [material, ...node.material.slice(1)];
-  else node.material = material;
-}
 function disposeModel(scene) {
   if (!scene) return;
   const geometries = new Set(), materials = new Set(), textures = new Set();
   scene.traverse(node => {
-    if (!node.isMesh) return;
+    if (!node.isMesh && !node.isPoints && !node.isLine) return;
     if (node.geometry) geometries.add(node.geometry);
     (Array.isArray(node.material) ? node.material : [node.material]).filter(Boolean).forEach(mat => {
       materials.add(mat);
@@ -41,18 +37,19 @@ function collectMeshes(root) {
     const elements = node.geometry.index?.count || vertices;
     results.push({
       id: node.uuid, name: node.name || ('Mesh ' + (results.length + 1)),
-      vertices, triangles: Math.floor(elements / 3),
+      vertices, triangles: Math.floor(elements / 3), slotCount: materialSlotCount(node),
+      materialNames: materialSlotNames(node),
     });
   });
   return results;
 }
 function inspectorInfo(entry) {
   if (!entry) return null;
-  const material = entry.mode === 'shader' ? entry.pbr || entry.original : firstMaterial(entry.mesh);
+  const material = entry.mode === 'shader' ? entry.pbr || entry.original : materialAt(entry.mesh, entry.slotIndex);
   const textures = {};
   TEXTURE_SLOTS.forEach(slot => {
     const tex = material?.[slot];
-    textures[slot] = tex ? entry.textureNames.get(slot) || 'GLB texture' : '';
+    textures[slot] = tex ? entry.textureNames.get(slot) || tex.name || 'Embedded / imported texture' : '';
   });
   return {
     mode: entry.mode, visible: entry.mesh.visible,
@@ -62,7 +59,8 @@ function inspectorInfo(entry) {
     metalness: Number(material?.metalness ?? 0),
     roughness: Number(material?.roughness ?? 1),
     textures,
-    slotCount: Array.isArray(entry.mesh.material) ? entry.mesh.material.length : 1,
+    slotCount: materialSlotCount(entry.mesh), slotIndex: entry.slotIndex,
+    materialName: entry.materialName,
     uniforms: entry.uniformSettings || { color: '#ffffff', speed: 1, intensity: 1 },
     shader: entry.mode === 'shader' ? entry.shaderSettings : null,
   };
@@ -114,12 +112,15 @@ function Highlight({ root, selectedMeshId }) {
   return null;
 }
 function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetToken,
-  onStatus, onMeshesChange, selectedMeshId, onSelectMesh, editCommand, onInspectorChange }) {
+  onStatus, onMeshesChange, selectedMeshId, selectedMaterialSlot, onSelectMesh, editCommand, onInspectorChange }) {
   const [loadedModel, setLoadedModel] = useState(null);
+  const { scene: overlayScene } = useThree();
   const model = loadedModel?.file === file ? loadedModel.scene : null;
   const registeredScenes = useRef(new WeakSet());
   const robotRef = useRef(null);
   const registry = useRef(new Map());
+  const selectedSlotRef = useRef(null);
+  selectedSlotRef.current = slotKey(selectedMeshId, selectedMaterialSlot);
   const activeRoot = file ? model : robotRef.current;
   const previousGlobal = useRef({ color, metalness, roughness });
 
@@ -130,13 +131,14 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     if (!file) return () => { cancelled = true; };
     (async () => {
       try {
-        const gltf = await new GLTFLoader().parseAsync(await file.arrayBuffer(), '');
-        loaded = gltf.scene;
+        const imported = await import3DFile(file);
+        loaded = imported.scene;
         if (cancelled) { disposeModel(loaded); return; }
         setLoadedModel({ file, scene: loaded });
-        onStatus('Đã mở ' + file.name + ' (' + (file.size / 1048576).toFixed(2) + ' MB).');
+        onStatus('Loaded ' + file.name + ' (' + imported.extension.toUpperCase() + ', ' + imported.meshCount +
+          ' meshes, ' + imported.pointCount.toLocaleString() + ' points).');
       } catch (error) {
-        if (!cancelled) onStatus('Không thể mở GLB: ' + (error?.message || 'File không hợp lệ.'));
+        if (!cancelled) onStatus('Cannot open 3D model: ' + (error?.message || 'Invalid or unsupported file.'));
       }
     })();
     return () => {
@@ -150,13 +152,16 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     const root = file ? model : robotRef.current;
     root?.traverse(node => {
       if (!node.isMesh) return;
-      current.set(node.uuid, {
-        mesh: node, original: firstMaterial(node),
-        pbr: null, shader: null, outline: null, mode: 'pbr',
-        shaderSettings: null,
-        uniformSettings: { color: firstMaterial(node)?.color?.getHexString ? '#' + firstMaterial(node).color.getHexString() : '#ffffff', speed: 1, intensity: 1 },
-        uploads: new Map(), textureNames: new Map(),
-        originalVisible: node.visible,
+      materialsOf(node).forEach((material, slotIndex) => {
+        current.set(slotKey(node.uuid, slotIndex), {
+          mesh: node, slotIndex, original: material,
+          materialName: materialSlotNames(node)[slotIndex],
+          pbr: null, shader: null, outline: null, mode: 'pbr',
+          shaderSettings: null,
+          uniformSettings: { color: material?.color?.getHexString ? '#' + material.color.getHexString() : '#ffffff', speed: 1, intensity: 1 },
+          uploads: new Map(), textureNames: new Map(),
+          originalVisible: node.visible,
+        });
       });
     });
     registry.current = current;
@@ -166,7 +171,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     return () => {
       current.forEach(entry => {
         entry.mesh.visible = entry.originalVisible;
-        setFirstMaterial(entry.mesh, entry.original);
+        setMaterialAt(entry.mesh, entry.slotIndex, entry.original);
         clearOutline(entry);
         entry.pbr?.dispose();
         entry.shader?.dispose();
@@ -183,39 +188,26 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
   }, [file, model, onMeshesChange, onInspectorChange]);
 
   function workingPbr(entry) {
-    if (!entry.pbr) {
-      entry.pbr = entry.original.clone();
-    }
+    if (!entry.pbr) entry.pbr = createEditablePbr(entry.original);
     return entry.pbr;
   }
   function clearOutline(entry) {
     if (!entry.outline) return;
-    entry.mesh.remove(entry.outline);
-    entry.outline.material.dispose();
-    // Geometry is shared with the original mesh: never dispose it here.
+    overlayScene.remove(entry.outline);
+    disposeOutlineOverlay(entry.outline);
     entry.outline = null;
   }
   function createOutline(entry, widthFraction) {
     const mesh = entry.mesh;
-    if (mesh.isSkinnedMesh || !mesh.geometry?.getAttribute('normal')) {
-      onStatus('Outline needs a static mesh with vertex normals.');
-      return;
+    try {
+      const outline = createOutlineOverlay(mesh, entry.slotIndex, widthFraction);
+      mesh.updateWorldMatrix(true, false);
+      outline.matrix.copy(mesh.matrixWorld);
+      overlayScene.add(outline);
+      entry.outline = outline;
+    } catch (error) {
+      onStatus('Anime outline skipped: ' + (error?.message || 'Unsupported geometry.'));
     }
-    mesh.geometry.computeBoundingSphere();
-    const radius = Math.max(mesh.geometry.boundingSphere?.radius || 1, 0.001);
-    const material = new RawShaderMaterial({
-      vertexShader: ANIME_OUTLINE_VERTEX,
-      fragmentShader: ANIME_OUTLINE_FRAGMENT,
-      side: BackSide,
-      uniforms: { uOutlineWidth: { value: radius * widthFraction } },
-    });
-    const outline = new Mesh(mesh.geometry, material);
-    outline.name = 'Ink outline helper (not selectable)';
-    outline.raycast = () => {};
-    outline.frustumCulled = mesh.frustumCulled;
-    outline.renderOrder = -1;
-    mesh.add(outline);
-    entry.outline = outline;
   }
   function applyShaderToEntry(entry, options) {
     clearOutline(entry);
@@ -224,6 +216,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
     const texture = pbr?.map || null;
     const settings = entry.uniformSettings;
     const shader = new RawShaderMaterial({
+      name: entry.materialName,
       vertexShader: options.vertex, fragmentShader: options.fragment,
       uniforms: {
         uTime: { value: 0 },
@@ -239,13 +232,17 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       vertex: options.vertex, fragment: options.fragment,
       outlineEnabled: Boolean(options.outlineEnabled), outlineSize: options.outlineSize || 0.025,
     };
-    setFirstMaterial(entry.mesh, shader);
+    setMaterialAt(entry.mesh, entry.slotIndex, shader);
     if (options.outlineEnabled) createOutline(entry, options.outlineSize || 0.025);
   }
-  function notify(entry) { onInspectorChange(inspectorInfo(entry)); }
+  function notify(entry) {
+    if (!entry || slotKey(entry.mesh.uuid, entry.slotIndex) === selectedSlotRef.current) {
+      onInspectorChange(inspectorInfo(entry));
+    }
+  }
   useEffect(() => {
-    notify(registry.current.get(selectedMeshId));
-  }, [selectedMeshId, file, model, onInspectorChange]);
+    notify(registry.current.get(slotKey(selectedMeshId, selectedMaterialSlot)));
+  }, [selectedMeshId, selectedMaterialSlot, file, model, onInspectorChange]);
 
   // Preserve v0.2's global controls without altering original GLB textures on initial load.
   useEffect(() => {
@@ -260,14 +257,14 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       material.metalness = metalness;
       material.roughness = roughness;
       material.needsUpdate = true;
-      setFirstMaterial(entry.mesh, material);
+      setMaterialAt(entry.mesh, entry.slotIndex, material);
     });
-    notify(registry.current.get(selectedMeshId));
-  }, [color, metalness, roughness, selectedMeshId]);
+    notify(registry.current.get(slotKey(selectedMeshId, selectedMaterialSlot)));
+  }, [color, metalness, roughness, selectedMeshId, selectedMaterialSlot]);
 
   useEffect(() => {
     if (!editCommand) return;
-    const entry = registry.current.get(editCommand.meshId);
+    const entry = registry.current.get(slotKey(editCommand.meshId, editCommand.slotIndex ?? 0));
     if (!entry) return;
     const { type, property, value, slot } = editCommand;
     if (type === 'reset') {
@@ -279,12 +276,21 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       entry.uploads.forEach(texture => texture.dispose());
       entry.uploads.clear(); entry.textureNames.clear();
       entry.mode = 'pbr';
-      entry.mesh.visible = entry.originalVisible;
-      setFirstMaterial(entry.mesh, entry.original);
+      // Visibility belongs to the whole mesh: resetting one slot must not alter its neighbors.
+      if (materialSlotCount(entry.mesh) === 1) entry.mesh.visible = entry.originalVisible;
+      setMaterialAt(entry.mesh, entry.slotIndex, entry.original);
     } else if (type === 'visible') {
       entry.mesh.visible = value;
     } else if (type === 'shader') {
       applyShaderToEntry(entry, editCommand);
+    } else if (type === 'outlineThickness') {
+      const width = Number(editCommand.value);
+      if (entry.mode === 'shader' && entry.outline && Number.isFinite(width)) {
+        const thickness = Math.max(0.005, Math.min(0.1, width));
+        if (updateOutlineThickness(entry.outline, entry.mesh.geometry, entry.slotIndex, thickness)) {
+          entry.shaderSettings = { ...entry.shaderSettings, outlineSize: thickness };
+        }
+      }
     } else if (type === 'uniform') {
       const u = entry.uniformSettings;
       if (property === 'color' && /^#[0-9a-fA-F]{6}$/.test(value)) u.color = value;
@@ -312,12 +318,12 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
         entry.shader = null;
         entry.shaderSettings = null;
         entry.mode = 'pbr';
-        setFirstMaterial(entry.mesh, material);
+        setMaterialAt(entry.mesh, entry.slotIndex, material);
       }
     } else if (type === 'pbr') {
       clearOutline(entry);
       entry.mode = 'pbr';
-      setFirstMaterial(entry.mesh, entry.pbr || entry.original);
+      setMaterialAt(entry.mesh, entry.slotIndex, entry.pbr || entry.original);
     } else if (type === 'property' || type === 'wireframe') {
       const mat = workingPbr(entry);
       if (type === 'wireframe') mat.wireframe = value;
@@ -327,7 +333,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
         if (property in mat) mat[property] = value;
       }
       mat.needsUpdate = true;
-      if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+      if (entry.mode !== 'shader') setMaterialAt(entry.mesh, entry.slotIndex, mat);
       if (type === 'wireframe' && entry.shader) entry.shader.wireframe = value;
     } else if (type === 'removeTexture' && TEXTURE_SLOTS.includes(slot)) {
       const mat = workingPbr(entry);
@@ -336,7 +342,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       if (oldUpload) oldUpload.dispose();
       entry.uploads.delete(slot); entry.textureNames.delete(slot);
       mat.needsUpdate = true;
-      if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+      if (entry.mode !== 'shader') setMaterialAt(entry.mesh, entry.slotIndex, mat);
       if (slot === 'map' && entry.shader) {
         entry.shader.uniforms.uTexture.value = null;
         entry.shader.uniforms.uUseTexture.value = 0;
@@ -347,7 +353,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
       const mat = workingPbr(entry);
       new TextureLoader().load(objectUrl, texture => {
         URL.revokeObjectURL(objectUrl);
-        if (registry.current.get(editCommand.meshId) !== entry) { texture.dispose(); return; }
+        if (registry.current.get(slotKey(editCommand.meshId, entry.slotIndex)) !== entry) { texture.dispose(); return; }
         texture.colorSpace = COLOR_SLOTS.has(slot) ? SRGBColorSpace : NoColorSpace;
         texture.flipY = false; // GLB UV convention
         const oldUpload = entry.uploads.get(slot);
@@ -356,7 +362,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
         entry.textureNames.set(slot, imageFile.name);
         mat[slot] = texture;
         mat.needsUpdate = true;
-        if (entry.mode !== 'shader') setFirstMaterial(entry.mesh, mat);
+        if (entry.mode !== 'shader') setMaterialAt(entry.mesh, entry.slotIndex, mat);
         if (slot === 'map' && entry.shader) {
           entry.shader.uniforms.uTexture.value = texture;
           entry.shader.uniforms.uUseTexture.value = 1;
@@ -373,6 +379,11 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
 
   useFrame((_state, delta) => {
     registry.current.forEach(entry => {
+      if (entry.outline) {
+        entry.mesh.updateWorldMatrix(true, false);
+        entry.outline.matrix.copy(entry.mesh.matrixWorld);
+        entry.outline.matrixWorldNeedsUpdate = true;
+      }
       if (entry.mode === 'shader' && entry.shader) {
         const time = entry.shader.uniforms.uTime;
         time.value = advanceShaderTime(time.value, delta, entry.uniformSettings.speed);
@@ -383,7 +394,7 @@ function Scene({ file, color, metalness, roughness, autoRotate, showGrid, resetT
   function selectFromPointer(event) {
     if (!event.object?.isMesh) return;
     event.stopPropagation();
-    onSelectMesh(event.object.uuid);
+    onSelectMesh(event.object.uuid, materialSlotFromHit(event.object, event));
   }
   return <>
     <color attach="background" args={['#111c2b']}/>

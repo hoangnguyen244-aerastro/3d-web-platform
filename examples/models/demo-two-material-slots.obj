@@ -1,0 +1,15 @@
+# Two separate usemtl regions on one OBJ mesh. Sidecar MTL is not required.
+o TwoMaterialPanel
+v -1 0 -1
+v 0 0 -1
+v 1 0 -1
+v -1 0 1
+v 0 0 1
+v 1 0 1
+vn 0 1 0
+usemtl LeftRegion
+f 1//1 4//1 5//1
+f 1//1 5//1 2//1
+usemtl RightRegion
+f 2//1 5//1 6//1
+f 2//1 6//1 3//1
