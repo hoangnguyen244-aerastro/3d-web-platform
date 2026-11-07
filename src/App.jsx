@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ModelViewer from './components/ModelViewer.jsx';
 import { IMPORT_ACCEPT, IMPORT_FORMATS, validateModelFile } from './loaders/modelImporter.js';
+import { loadBoatFile } from './loaders/defaultBoat.js';
 import { makeMaterialPreset, parseMaterialPreset } from './utils/materialPreset.js';
 import { ANIME_TOON_VERTEX, ANIME_TOON_FRAGMENT } from './shaders/animeToon.js';
 import './v02.css';
@@ -91,6 +92,7 @@ export default function App() {
   const [outlineSize, setOutlineSize] = useState(0.025);
   const [edit, setEdit] = useState(null);
   const input = useRef(null);
+  const userModelChoice = useRef(false);
   const presetInput = useRef(null);
   const [presetMessage, setPresetMessage] = useState('');
   const idCounter = useRef(0);
@@ -111,13 +113,30 @@ export default function App() {
     setOutlineSize(inspector.shader?.outlineSize || 0.025);
   }, [inspector, selectedMeshId, selectedMaterialSlot]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const boatUrl = import.meta.env.BASE_URL + 'models/Boat.fbx';
+    loadBoatFile(boatUrl)
+      .then(boat => {
+        if (cancelled || userModelChoice.current) return;
+        setMeshes([]);
+        setFile(boat);
+        setStatus('Đang tải Boat.fbx mặc định với textures nhúng...');
+      })
+      .catch(error => {
+        if (!cancelled && !userModelChoice.current)
+          setStatus('Boat.fbx chưa được cài đặt: ' + error.message + ' Hiện dùng robot mẫu.');
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   function command(type, extra = {}) {
     if (!selectedMeshId) return;
     setEdit({ sequence: ++idCounter.current, meshId: selectedMeshId, slotIndex: selectedMaterialSlot, type, ...extra });
   }
-  function select(id) {
+  function select(id, slotIndex = 0) {
     setSelectedMeshId(id);
-    setSelectedMaterialSlot(0);
+    setSelectedMaterialSlot(id ? slotIndex : 0);
     setInspector(null);
     setShaderMessage('');
     setPresetMessage('');
@@ -135,12 +154,14 @@ export default function App() {
     if (!selected) return;
     try { validateModelFile(selected); }
     catch (error) { setStatus(error.message); return; }
+    userModelChoice.current = true;
     select(null);
     setMeshes([]);
     setFile(selected);
     setStatus('Đang mở ' + selected.name + '...');
   }
   function sampleRobot() {
+    userModelChoice.current = true;
     select(null); setMeshes([]); setFile(null);
     setColor('#58b8ff'); setMetalness(.35); setRoughness(.42);
     setResetCamera(n => n + 1);
@@ -252,7 +273,7 @@ export default function App() {
           autoRotate={autoRotate} showGrid={showGrid} resetToken={resetCamera}
           onStatus={setStatus} onMeshesChange={setMeshes} selectedMeshId={selectedMeshId} selectedMaterialSlot={selectedMaterialSlot}
           onSelectMesh={select} editCommand={edit} onInspectorChange={setInspector}/>
-        <p className="caption">Left click to select · Drag to orbit · Scroll to zoom · Right-drag to pan</p>
+        <p className="caption">Click a surface to select mesh + material slot · Drag to orbit · Scroll to zoom · Right-drag to pan</p>
         <p className="v02-status" role="status">{status}</p>
       </section>
 
