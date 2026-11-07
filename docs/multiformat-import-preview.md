@@ -25,6 +25,14 @@ Single-file import means **sidecar dependencies are not loaded**. Prefer self-co
 4. Reset Camera frames the loaded scene. Use Return to Sample Robot to clear a model. Switching files disposes model resources.
 5. Errors are displayed in the status bar without modifying `main`. Open one model at a time.
 
+## Downloadable test models
+
+To test without searching for external assets, download these small files using GitHub's **Raw → Download** option:
+
+- [Demo OBJ pyramid](../examples/models/demo-pyramid.obj) — triangle surface; should appear in the mesh Hierarchy.
+- [Demo STL triangle](../examples/models/demo-triangle.stl) — CAD/printing geometry.
+- [Demo XYZ particles](../examples/models/demo-particles.xyz) — scientific point samples; appear in the viewport but not the mesh Hierarchy.
+
 ## Windows verification
 
 Run `npm.cmd run test` then `npm.cmd run dev` after checkout of the feature branch.
