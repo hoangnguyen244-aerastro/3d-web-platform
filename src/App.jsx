@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ModelViewer from './components/ModelViewer.jsx';
 import { IMPORT_ACCEPT, IMPORT_FORMATS, validateModelFile } from './loaders/modelImporter.js';
 import { makeMaterialPreset, parseMaterialPreset } from './utils/materialPreset.js';
@@ -99,6 +99,17 @@ export default function App() {
   const selectedSlotRef = useRef(0);
   selectedSlotRef.current = selectedMaterialSlot;
   const chosen = meshes.find(mesh => mesh.id === selectedMeshId);
+  const lastEditorSlot = useRef(null);
+  useEffect(() => {
+    if (!inspector || !selectedMeshId) return;
+    const current = selectedMeshId + ':' + selectedMaterialSlot;
+    if (lastEditorSlot.current === current) return;
+    lastEditorSlot.current = current;
+    setVertex(inspector.shader?.vertex || DEFAULT_VERTEX);
+    setFragment(inspector.shader?.fragment || DEFAULT_FRAGMENT);
+    setOutlineEnabled(Boolean(inspector.shader?.outlineEnabled));
+    setOutlineSize(inspector.shader?.outlineSize || 0.025);
+  }, [inspector, selectedMeshId, selectedMaterialSlot]);
 
   function command(type, extra = {}) {
     if (!selectedMeshId) return;
