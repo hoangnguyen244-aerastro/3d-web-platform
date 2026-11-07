@@ -4,11 +4,11 @@ import { advanceShaderTime } from '../src/utils/shaderClock.js';
 
 test('speed scales animation advance without changing the phase abruptly', () => {
   let t = advanceShaderTime(1, 0.05, 1);
-  assert.equal(t, 1.05);
+  assert.ok(Math.abs(t - 1.05) < 1e-9);
   t = advanceShaderTime(t, 0.05, 2);
-  assert.equal(t, 1.15);
+  assert.ok(Math.abs(t - 1.15) < 1e-9);
   t = advanceShaderTime(t, 0.05, 0);
-  assert.equal(t, 1.15);
+  assert.ok(Math.abs(t - 1.15) < 1e-9);
 });
 test('caps frame gaps when the tab was inactive', () => {
   assert.equal(advanceShaderTime(2, 5, 1), 2.1);
