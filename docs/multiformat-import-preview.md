@@ -6,7 +6,7 @@ The importer is developed **before** the v0.3.4 Multi-Material Slot Inspector. I
 
 | Field | Supported extensions | What opens |
 |---|---|---|
-| General 3D / animation | `.glb`, `.gltf`, `.fbx`, `.obj` | Scene meshes and available embedded materials |
+| General 3D / animation | `.glb`, `.gltf`, `.fbx`, `.obj`, `.dae`, `.3ds` | Scene meshes and available embedded materials |
 | 3D printing / CAD exchange meshes | `.stl`, `.ply`, `.3mf` | Triangulated mesh geometry |
 | USD scene archive | `.usdz` | Subset supported by the Three.js USDZLoader bundled in this version |
 | Scientific surface | `.vtk` | **Legacy VTK POLYDATA geometry only**, not every VTK dataset |
