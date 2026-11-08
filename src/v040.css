@@ -1,0 +1,25 @@
+/* Aerastro 3D v0.4.0 preview — responsive auth and private storage controls. */
+.cloud-workspace{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px;margin:14px 0}
+.cloud-panel{background:#151f2d;border:1px solid #3a4c61;border-radius:10px;padding:18px;color:#e1e9f3;min-width:0}
+.cloud-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.cloud-panel-heading h2{font-size:16px;margin:0}
+.cloud-panel-heading span{font-size:11px;color:#a9bacd}
+.cloud-panel p{font-size:12px;line-height:1.6;margin:8px 0}
+.cloud-auth-form{display:flex;align-items:stretch;flex-wrap:wrap;gap:8px}
+.cloud-auth-form label{flex-basis:100%;font-size:12px;font-weight:600}
+.cloud-auth-form input{flex:1;min-width:190px;min-height:36px;padding:8px 10px;color:#edf6ff;background:#101826;border:1px solid #647b90;border-radius:5px;font:inherit}
+.cloud-panel button,.cloud-file-button{background:#25445e;border:1px solid #547b9b;border-radius:5px;color:#edf6ff;font:inherit;font-size:12px;padding:9px 12px;cursor:pointer}
+.cloud-panel button:hover:not(:disabled),.cloud-file-button:hover{background:#306080}
+.cloud-panel button:disabled,.cloud-file-button:has(input:disabled){opacity:.5;cursor:not-allowed}
+.cloud-social,.cloud-signed-in{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.cloud-message{color:#a3e4c7;overflow-wrap:anywhere}
+.cloud-hint{color:#b5c8d8}
+.cloud-error{border:1px solid #9b5d5d;color:#ffd2d2;padding:10px;border-radius:6px}
+.cloud-file-button{display:inline-flex;align-items:center;margin-right:10px;position:relative}
+.cloud-file-button input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.cloud-asset-list{list-style:none;padding:0;margin:12px 0 0;display:grid;gap:8px}
+.cloud-asset-list li{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid #36485b;border-radius:6px;padding:9px}
+.cloud-asset-list li span{flex:1;min-width:140px;overflow-wrap:anywhere}
+.cloud-asset-list li small{display:block;color:#9db3c8;margin-top:3px}
+.cloud-asset-list li button:last-child{border-color:#8e6262}
+@media(max-width:600px){.cloud-workspace{grid-template-columns:1fr}.cloud-panel{padding:12px}.cloud-auth-form input{min-width:100%}}
