@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import ModelViewer from './components/ModelViewer.jsx';
+import AuthPanel from './components/AuthPanel.jsx';
+import CloudLibrary from './components/CloudLibrary.jsx';
+import { supabase } from './cloud/supabaseClient.js';
 import { IMPORT_ACCEPT, IMPORT_FORMATS, validateModelFile } from './loaders/modelImporter.js';
 import { loadBoatFile } from './loaders/defaultBoat.js';
 import { makeMaterialPreset, parseMaterialPreset } from './utils/materialPreset.js';
@@ -11,6 +14,7 @@ import './anime-demo.css';
 import './v033.css';
 import './importer.css';
 import './v034.css';
+import './v040.css';
 
 const DEFAULT_VERTEX = `precision highp float;
 attribute vec3 position;
@@ -73,6 +77,27 @@ function verifyGLSL(vertex, fragment) {
 
 export default function App() {
   const [tab, setTab] = useState('viewer');
+  const [accountUser, setAccountUser] = useState(null);
+  const [accountLoading, setAccountLoading] = useState(Boolean(supabase));
+  const [accountError, setAccountError] = useState('');
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setAccountUser(session?.user || null);
+      setAccountLoading(false);
+    });
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!active) return;
+      if (error && error.name !== 'AuthSessionMissingError') setAccountError('Session check: ' + error.message);
+      if (data?.user) setAccountUser(data.user);
+      setAccountLoading(false);
+    }).catch(error => {
+      if (active) { setAccountError('Session unavailable: ' + error.message); setAccountLoading(false); }
+    });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, []);
   const [file, setFile] = useState(null);
   const [meshes, setMeshes] = useState([]);
   const [selectedMeshId, setSelectedMeshId] = useState(null);
@@ -159,6 +184,14 @@ export default function App() {
     setMeshes([]);
     setFile(selected);
     setStatus('Đang mở ' + selected.name + '...');
+  }
+  function openFromCloud(cloudFile) {
+    userModelChoice.current = true;
+    select(null);
+    setMeshes([]);
+    setFile(cloudFile);
+    setTab('viewer');
+    setStatus('Opening ' + cloudFile.name + ' from your Cloud Library...');
   }
   function sampleRobot() {
     userModelChoice.current = true;
@@ -249,8 +282,13 @@ export default function App() {
     } catch (error) { setPresetMessage('Cannot import preset: ' + error.message); }
   }
   return <div className="app">
-    <header><div><strong>◈ 3D Web Platform</strong><small>Interactive 3D · Research tools</small></div><span>v0.3.4 · multi-material slots preview</span></header>
+    <header><div><strong>◈ Aerastro 3D</strong><small>Interactive 3D · Creator Cloud</small></div><span>v0.4.0 · Auth & Cloud Library preview</span></header>
     <section className="intro"><p className="eyebrow">YOUR 3D WORKSPACE</p><h1>Explore. Configure. Compare.</h1><p>Model viewer · Unity-style material inspector · WebGL GLSL lab</p></section>
+    <div className="cloud-workspace">
+      <AuthPanel user={accountUser} loading={accountLoading} onSessionError={setAccountError}/>
+      {accountError && <p role="alert" className="cloud-error">{accountError}</p>}
+      <CloudLibrary user={accountUser} onOpenFile={openFromCloud}/>
+    </div>
     <nav aria-label="Modules">
       <button className={tab === 'viewer' ? 'active' : ''} onClick={() => setTab('viewer')}>◈ Model Viewer</button>
       <button className={tab === 'benchmark' ? 'active' : ''} onClick={() => setTab('benchmark')}>▥ Compression Benchmark</button>
@@ -391,10 +429,10 @@ export default function App() {
             <label>Roughness {roughness.toFixed(2)} <input type="range" min="0" max="1" step=".01" value={roughness} onChange={e => setRoughness(+e.target.value)}/></label>
             <button onClick={() => {setColor('#58b8ff'); setMetalness(.35); setRoughness(.42);}}>Reset global settings</button>
           </details>
-          <p className="unity-tip">Everything runs locally in the browser. No model, texture or shader is uploaded to a server. Changes are session-only (GLB export comes later).</p>
+          <p className="unity-tip">Viewer edits are local and session-only. Only files you explicitly choose to upload through Cloud Library are stored privately in Supabase. Shader and material edits are not saved automatically.</p>
         </section>
       </aside>
     </div> : <section className="panel benchmark"><h2>Compression Benchmark</h2><p>Original vs compressed model comparison is planned. No compression engine is implemented yet.</p></section>}
-    <footer>React + Three.js + React Three Fiber · Multi-Material Slot Inspector v0.3.4</footer>
+    <footer>Aerastro 3D v0.4.0 preview · React + Three.js + Supabase Auth & Private Cloud Library</footer>
   </div>;
 }
