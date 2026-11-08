@@ -40,3 +40,6 @@ Regression tests in `tests/viteBase.test.js` check both paths.
 References:
 - https://vite.dev/guide/build#public-base-path
 - https://developers.cloudflare.com/workers/static-assets/
+
+## Trigger the first feature-branch Worker deployment
+Once the **Production branch** is saved as `feature/v0.4.0-auth-cloud-library` and **Build variable** `VITE_SITE_BASE=/` is configured, do **not** select `Retry build` on the old `main` deployment (this might rebuild the old source). Instead, push a new commit to the configured feature branch. Cloudflare Git integration should then start a new production build from that branch. Confirm the new deployment shows the feature branch and successfully serves the JavaScript and CSS from `/assets/` at the Worker root. This documentation edit is the trigger commit; it does not modify the application or `main`.
