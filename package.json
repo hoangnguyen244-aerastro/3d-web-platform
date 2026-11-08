@@ -14,7 +14,8 @@
     "@react-three/fiber": "^9.3.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "three": "^0.178.0"
+    "three": "^0.178.0",
+    "@supabase/supabase-js": "^2.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.7.0",
